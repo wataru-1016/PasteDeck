@@ -39,8 +39,8 @@
 1. リポジトリを取得して、ビルドスクリプトを実行します:
 
 ```bash
-git clone https://github.com/wataru-1016/paste-local.git
-cd paste-local
+git clone https://github.com/wataru-1016/PasteDeck.git
+cd PasteDeck
 ./scripts/build-app.sh
 ```
 
