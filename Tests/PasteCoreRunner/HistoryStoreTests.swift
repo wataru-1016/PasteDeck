@@ -42,7 +42,10 @@ func runHistoryStoreTests(_ t: TestHarness) {
     }
 
     t.run("上限超過時はピン留め以外の最古アイテムから削除される") { t in
-        let store = HistoryStore(persistence: try makeTempPersistence(), maxItems: 3)
+        let store = HistoryStore(
+            persistence: try makeTempPersistence(),
+            policy: RetentionPolicy(maxItems: 3, maxAge: nil)
+        )
         store.ingest(textContent("one"))
         store.togglePin(store.items[0].id)
         store.ingest(textContent("two"))
@@ -111,5 +114,51 @@ func runHistoryStoreTests(_ t: TestHarness) {
 
         store.moveToFront(last.id)
         t.expect(store.items[0].id == last.id, "先頭へ移動する")
+    }
+
+    t.run("保持期間を過ぎた未ピンアイテムは削除される") { t in
+        let store = HistoryStore(persistence: try makeTempPersistence())
+        let oldDate = Date(timeIntervalSinceNow: -3600)
+        store.ingest(textContent("expired"), at: oldDate)
+        store.ingest(textContent("old but pinned"), at: oldDate)
+        store.togglePin(try t.require(store.items.first?.id, "ピン対象が存在"))
+        store.ingest(textContent("fresh"))
+        let expiredID = try t.require(store.items.last?.id, "期限切れ対象が存在")
+
+        store.updatePolicy(RetentionPolicy(maxItems: nil, maxAge: 1800))
+        let previews = store.items.map(\.preview)
+        t.expect(!previews.contains("expired"), "期限切れの未ピンは消える")
+        t.expect(previews.contains("old but pinned"), "期限切れでもピン留めは残る")
+        t.expect(previews.contains("fresh"), "期限内は残る")
+        t.expect(store.flavors(for: expiredID) == nil, "期限切れの実データも消える")
+    }
+
+    t.run("件数無制限にすると上限トリムされない") { t in
+        let store = HistoryStore(
+            persistence: try makeTempPersistence(),
+            policy: RetentionPolicy(maxItems: 2, maxAge: nil)
+        )
+        store.ingest(textContent("one"))
+        store.ingest(textContent("two"))
+        store.ingest(textContent("three"))
+        t.expect(store.items.count == 2, "上限 2 でトリムされる")
+
+        store.updatePolicy(RetentionPolicy(maxItems: nil, maxAge: nil))
+        store.ingest(textContent("four"))
+        store.ingest(textContent("five"))
+        t.expect(store.items.count == 4, "無制限なら増え続ける")
+    }
+
+    t.run("起動時にも保持ポリシーが適用される") { t in
+        let persistence = try makeTempPersistence()
+        let store1 = HistoryStore(persistence: persistence)
+        store1.ingest(textContent("stale"), at: Date(timeIntervalSinceNow: -3600))
+        store1.ingest(textContent("recent"))
+
+        let store2 = HistoryStore(
+            persistence: persistence,
+            policy: RetentionPolicy(maxItems: nil, maxAge: 1800)
+        )
+        t.expect(store2.items.map(\.preview) == ["recent"], "期限切れは起動時に整理される")
     }
 }

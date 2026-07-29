@@ -20,6 +20,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         keyEquivalent: ""
     )
 
+    private static let maxItemsChoices: [(title: String, value: Int)] = [
+        ("100 件", 100), ("500 件", 500), ("1000 件", 1000), ("無制限", 0),
+    ]
+    private static let maxAgeChoices: [(title: String, seconds: Int)] = [
+        ("24 時間", 86_400), ("1 週間", 604_800), ("1 ヶ月", 2_592_000), ("無期限", 0),
+    ]
+    private var maxItemsMenuItems: [NSMenuItem] = []
+    private var maxAgeMenuItems: [NSMenuItem] = []
+
     init(store: HistoryStore, monitor: ClipboardMonitor, panelController: PanelController) {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.store = store
@@ -48,6 +57,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         pauseItem.target = self
         menu.addItem(pauseItem)
 
+        menu.addItem(buildRetentionMenuItem())
+
         let clearItem = NSMenuItem(title: "未ピンの履歴を消去…", action: #selector(clearHistory), keyEquivalent: "")
         clearItem.target = self
         menu.addItem(clearItem)
@@ -74,9 +85,65 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         return menu
     }
 
+    /// 「履歴の保持」サブメニュー（件数上限と保持期間のプリセット選択）
+    private func buildRetentionMenuItem() -> NSMenuItem {
+        let retentionMenu = NSMenu()
+
+        retentionMenu.addItem(Self.sectionHeader("件数上限"))
+        maxItemsMenuItems = Self.maxItemsChoices.map { choice in
+            let item = NSMenuItem(title: choice.title, action: #selector(selectMaxItems(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = choice.value
+            retentionMenu.addItem(item)
+            return item
+        }
+
+        retentionMenu.addItem(.separator())
+        retentionMenu.addItem(Self.sectionHeader("保持期間"))
+        maxAgeMenuItems = Self.maxAgeChoices.map { choice in
+            let item = NSMenuItem(title: choice.title, action: #selector(selectMaxAge(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = choice.seconds
+            retentionMenu.addItem(item)
+            return item
+        }
+
+        let retentionItem = NSMenuItem(title: "履歴の保持", action: nil, keyEquivalent: "")
+        retentionItem.submenu = retentionMenu
+        return retentionItem
+    }
+
+    private static func sectionHeader(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        return item
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         pauseItem.state = monitor.isPaused ? .on : .off
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+
+        let policy = store.policy
+        for item in maxItemsMenuItems {
+            item.state = (policy.maxItems ?? 0) == item.tag ? .on : .off
+        }
+        for item in maxAgeMenuItems {
+            item.state = Int(policy.maxAge ?? 0) == item.tag ? .on : .off
+        }
+    }
+
+    @objc private func selectMaxItems(_ sender: NSMenuItem) {
+        var policy = store.policy
+        policy.maxItems = sender.tag == 0 ? nil : sender.tag
+        RetentionPreferences.save(policy)
+        store.updatePolicy(policy)
+    }
+
+    @objc private func selectMaxAge(_ sender: NSMenuItem) {
+        var policy = store.policy
+        policy.maxAge = sender.tag == 0 ? nil : TimeInterval(sender.tag)
+        RetentionPreferences.save(policy)
+        store.updatePolicy(policy)
     }
 
     @objc private func showPanel() {

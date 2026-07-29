@@ -9,13 +9,30 @@ public final class HistoryStore: ObservableObject {
     /// 値型のため読み取り用途なら他スレッドへ渡しても安全。
     /// バックグラウンドでの flavor 読み込みは HistoryStore を経由せずこちらを直接使う
     public let persistence: Persistence
-    private let maxItems: Int
+    public private(set) var policy: RetentionPolicy
 
-    public init(persistence: Persistence, maxItems: Int = CaptureRules.maxItems) {
+    public init(persistence: Persistence, policy: RetentionPolicy = .default) {
         self.persistence = persistence
-        self.maxItems = maxItems
+        self.policy = policy
         self.items = persistence.loadIndex()
+        applyRetention()
         persistence.pruneFlavors(keeping: Set(items.map(\.id)))
+    }
+
+    // MARK: - 保持ポリシー
+
+    public func updatePolicy(_ newPolicy: RetentionPolicy, now: Date = Date()) {
+        policy = newPolicy
+        applyRetention(now: now)
+    }
+
+    /// 現在のポリシーで期限切れ・件数超過を整理する。
+    /// 起動時・ポリシー変更時・定期チェックから呼ばれる
+    public func applyRetention(now: Date = Date()) {
+        let retained = retainedItems(from: items, now: now)
+        guard retained != items else { return }
+        items = retained
+        persistIndex()
     }
 
     // MARK: - 取り込み
@@ -73,7 +90,7 @@ public final class HistoryStore: ObservableObject {
 
         var updated = items
         updated.insert(item, at: 0)
-        items = trimmed(updated)
+        items = retainedItems(from: updated, now: now)
         persistIndex()
     }
 
@@ -134,13 +151,26 @@ public final class HistoryStore: ObservableObject {
         }
     }
 
-    /// 上限超過分を「ピン留めされていない最も古いもの」から削除する
-    private func trimmed(_ list: [ClipboardItem]) -> [ClipboardItem] {
+    /// 保持ポリシーを適用した結果を返す。
+    /// 期限切れ → 件数超過の順に、ピン留め以外の古いアイテムから削除する
+    private func retainedItems(from list: [ClipboardItem], now: Date) -> [ClipboardItem] {
         var result = list
-        while result.count > maxItems, let index = result.lastIndex(where: { !$0.isPinned }) {
-            persistence.deleteFlavors(id: result[index].id)
-            result.remove(at: index)
+
+        if let maxAge = policy.maxAge {
+            let cutoff = now.addingTimeInterval(-maxAge)
+            for item in result where !item.isPinned && item.createdAt < cutoff {
+                persistence.deleteFlavors(id: item.id)
+            }
+            result = result.filter { $0.isPinned || $0.createdAt >= cutoff }
         }
+
+        if let maxItems = policy.maxItems {
+            while result.count > maxItems, let index = result.lastIndex(where: { !$0.isPinned }) {
+                persistence.deleteFlavors(id: result[index].id)
+                result.remove(at: index)
+            }
+        }
+
         return result
     }
 

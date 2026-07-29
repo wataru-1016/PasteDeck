@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBarController: StatusBarController!
     private var panelController: PanelController!
     private var activityToken: NSObjectProtocol?
+    private var retentionTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let persistence: Persistence
@@ -20,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        store = HistoryStore(persistence: persistence)
+        store = HistoryStore(persistence: persistence, policy: RetentionPreferences.load())
         monitor = ClipboardMonitor(store: store)
         pasteService = PasteService(store: store, monitor: monitor)
 
@@ -48,6 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         monitor.start()
+
+        // 保持期間の期限切れを定期的に整理する（5 分間隔）
+        let timer = Timer(timeInterval: 300, repeats: true) { [weak self] _ in
+            self?.store.applyRetention()
+        }
+        timer.tolerance = 30
+        RunLoop.main.add(timer, forMode: .common)
+        retentionTimer = timer
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
