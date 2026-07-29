@@ -12,7 +12,12 @@ public struct Persistence {
         self.rootURL = rootURL
         self.indexURL = rootURL.appendingPathComponent("items.json")
         self.flavorsDir = rootURL.appendingPathComponent("flavors", isDirectory: true)
-        try FileManager.default.createDirectory(at: flavorsDir, withIntermediateDirectories: true)
+        // クリップボード内容を含むため、所有者のみアクセス可能にする
+        try FileManager.default.createDirectory(
+            at: flavorsDir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
     }
 
     public static func defaultRootURL() -> URL {

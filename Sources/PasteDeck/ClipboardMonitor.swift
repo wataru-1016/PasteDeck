@@ -22,9 +22,14 @@ final class ClipboardMonitor {
         let timer = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             self?.poll()
         }
+        timer.tolerance = 0.05
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         poll()
+    }
+
+    deinit {
+        timer?.invalidate()
     }
 
     /// PasteService が自分で書き込んだ直後に呼び、その変更を履歴に再取り込みしない

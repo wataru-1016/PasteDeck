@@ -153,7 +153,7 @@ struct ItemCardView: View {
             .padding(12)
 
         case .image:
-            ImageThumbnailView(item: item, store: viewModel.store)
+            ImageThumbnailView(item: item, persistence: viewModel.store.persistence)
 
         case .fileList:
             fileListBody
@@ -255,7 +255,7 @@ private struct FileThumbnailView: View {
 /// 画像アイテムのサムネイル表示
 private struct ImageThumbnailView: View {
     let item: ClipboardItem
-    let store: HistoryStore
+    let persistence: Persistence
 
     @State private var thumbnail: NSImage?
 
@@ -277,7 +277,7 @@ private struct ImageThumbnailView: View {
             }
             .clipped()
             .onAppear {
-                ThumbnailProvider.shared.thumbnail(for: item, store: store) { image in
+                ThumbnailProvider.shared.thumbnail(for: item, persistence: persistence) { image in
                     thumbnail = image
                 }
             }

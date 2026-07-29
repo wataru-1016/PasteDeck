@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import PasteCore
 import QuickLookThumbnailing
 import UniformTypeIdentifiers
@@ -32,6 +33,10 @@ final class FileThumbnailProvider {
 
     private let cache = NSCache<NSString, NSImage>()
 
+    init() {
+        cache.countLimit = 200
+    }
+
     func thumbnail(
         for fileURL: URL,
         cacheKey: String,
@@ -62,15 +67,23 @@ final class FileThumbnailProvider {
     }
 }
 
-/// 画像アイテムのサムネイル読み込み（ディスクから非同期・キャッシュ付き）
+/// 画像アイテムのサムネイル読み込み（ディスクから非同期・縮小してキャッシュ）。
+/// フル解像度で NSImage 展開するとカード表示に対して過大なメモリを食うため、
+/// ImageIO で表示サイズ相当までダウンサンプリングする
 final class ThumbnailProvider {
+    private static let maxPixelSize = 640
+
     static let shared = ThumbnailProvider()
 
     private let cache = NSCache<NSString, NSImage>()
 
+    init() {
+        cache.countLimit = 100
+    }
+
     func thumbnail(
         for item: ClipboardItem,
-        store: HistoryStore,
+        persistence: Persistence,
         completion: @escaping (NSImage?) -> Void
     ) {
         let key = item.id.uuidString as NSString
@@ -80,9 +93,9 @@ final class ThumbnailProvider {
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let flavors = store.flavors(for: item.id)
+            let flavors = persistence.loadFlavors(id: item.id)
             let data = flavors?["public.png"] ?? flavors?["public.tiff"]
-            let image = data.flatMap(NSImage.init(data:))
+            let image = data.flatMap { Self.downsampledImage(from: $0) }
             DispatchQueue.main.async {
                 if let image {
                     self?.cache.setObject(image, forKey: key)
@@ -90,5 +103,18 @@ final class ThumbnailProvider {
                 completion(image)
             }
         }
+    }
+
+    private static func downsampledImage(from data: Data) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }

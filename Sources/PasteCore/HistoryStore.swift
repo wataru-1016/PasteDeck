@@ -6,7 +6,9 @@ import Foundation
 public final class HistoryStore: ObservableObject {
     @Published public private(set) var items: [ClipboardItem] = []
 
-    private let persistence: Persistence
+    /// 値型のため読み取り用途なら他スレッドへ渡しても安全。
+    /// バックグラウンドでの flavor 読み込みは HistoryStore を経由せずこちらを直接使う
+    public let persistence: Persistence
     private let maxItems: Int
 
     public init(persistence: Persistence, maxItems: Int = CaptureRules.maxItems) {

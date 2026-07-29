@@ -28,32 +28,41 @@ final class PasteService {
         }
     }
 
+    /// 書き込む内容を確定してから clearContents する。
+    /// 「消去したのに何も書き込まない」状態を作らないため、全分岐が必ず書き込みで終わる
     private func writeToPasteboard(_ item: ClipboardItem, plainTextOnly: Bool) {
         let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
 
         if item.kind == .fileList,
            let urls = item.fileURLs?.compactMap({ URL(string: $0) }),
            !urls.isEmpty {
+            pasteboard.clearContents()
             pasteboard.writeObjects(urls as [NSURL])
             return
         }
 
-        guard let flavors = store.flavors(for: item.id), !flavors.isEmpty else {
-            pasteboard.setString(item.preview, forType: .string)
+        let flavors = store.flavors(for: item.id) ?? [:]
+
+        // ⌥Enter はプレーンテキスト flavor がある場合のみプレーン化し、
+        // ない種別（画像など）は通常貼り付けへフォールバックする
+        if plainTextOnly,
+           let data = flavors[CaptureRules.plainTextType],
+           let text = String(data: data, encoding: .utf8) {
+            pasteboard.clearContents()
+            pasteboard.setString(text, forType: .string)
             return
         }
 
-        if plainTextOnly {
-            if let data = flavors[CaptureRules.plainTextType],
-               let text = String(data: data, encoding: .utf8) {
-                pasteboard.setString(text, forType: .string)
-            }
-        } else {
+        if !flavors.isEmpty {
+            pasteboard.clearContents()
             for (type, data) in flavors {
                 pasteboard.setData(data, forType: NSPasteboard.PasteboardType(type))
             }
+            return
         }
+
+        pasteboard.clearContents()
+        pasteboard.setString(item.preview, forType: .string)
     }
 
     private func ensureAccessibilityPermission() -> Bool {

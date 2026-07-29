@@ -40,12 +40,15 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
-        panel.isFloatingPanel = true
+        // isFloatingPanel = true は level を .floating へ上書きするため使わない
         panel.contentView = NSHostingView(rootView: PanelView(viewModel: viewModel))
         panel.delegate = self
 
         viewModel.onActivate = { [weak self] item, plainTextOnly in
-            self?.hide { self?.onPaste?(item, plainTextOnly) }
+            // 閉じアニメーション中のダブルクリックで、パネルがまだ key のうちに
+            // ⌘V が合成されるのを防ぐ（表示中のときだけ受け付ける）
+            guard let self, self.isShown else { return }
+            self.hide { self.onPaste?(item, plainTextOnly) }
         }
         installKeyMonitor()
     }

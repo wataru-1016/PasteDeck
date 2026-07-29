@@ -43,6 +43,9 @@ final class PanelViewModel: ObservableObject {
     }
 
     func select(_ item: ClipboardItem) {
+        // 削除ボタンとカードのタップが同時発火した場合に、
+        // 削除済みアイテムが選択されるのを防ぐ
+        guard visible.contains(where: { $0.id == item.id }) else { return }
         selectedID = item.id
     }
 
