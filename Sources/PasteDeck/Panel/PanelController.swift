@@ -14,8 +14,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     private static let panelHeight: CGFloat = 340
     private static let showDuration: TimeInterval = 0.22
     private static let hideDuration: TimeInterval = 0.16
+    /// 畳んだときの窓の高さ。0 は AppKit が最小サイズへ丸めることがあるため 1 にする
+    private static let collapsedHeight: CGFloat = 1
 
     private let panel: KeyablePanel
+    private let hostingView: NSHostingView<PanelView>
     let viewModel: PanelViewModel
     private var keyMonitor: Any?
     private(set) var isShown = false
@@ -26,6 +29,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     init(viewModel: PanelViewModel) {
         self.viewModel = viewModel
+        self.hostingView = NSHostingView(rootView: PanelView(viewModel: viewModel))
         self.panel = KeyablePanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -41,7 +45,14 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         // isFloatingPanel = true は level を .floating へ上書きするため使わない
-        panel.contentView = NSHostingView(rootView: PanelView(viewModel: viewModel))
+
+        // 中身は contentView に直接せず、入れ物の NSView に「上端固定」でぶら下げる。
+        // 表示・非表示は窓の高さだけを変えるスライドで（理由は show() のコメントを参照）、
+        // 高さが変わる間の追従は autoresizing（下側の余白だけが伸縮）に任せる
+        hostingView.autoresizingMask = [.width, .minYMargin]
+        let container = NSView()
+        container.addSubview(hostingView)
+        panel.contentView = container
         panel.delegate = self
 
         viewModel.onActivate = { [weak self] item, plainTextOnly in
@@ -74,10 +85,17 @@ final class PanelController: NSObject, NSWindowDelegate {
             width: visibleFrame.width,
             height: Self.panelHeight
         )
-        let startFrame = endFrame.offsetBy(dx: 0, dy: -Self.panelHeight - 8)
+        // 窓ごと画面の下の外からスライドさせてはいけない。ディスプレイを縦に並べていると
+        // 「上の画面の下端の外」は下の画面の上端そのものなので、アニメーションの間だけ
+        // 下の画面に映ってしまう。窓は最初から表示先の画面内に置き、高さだけを広げる。
+        // 中身は窓の上端に固定してあり、窓の外は描画されないため、見た目は同じ
+        // スライドインのまま他の画面には一切はみ出さない
+        var startFrame = endFrame
+        startFrame.size.height = Self.collapsedHeight
 
         viewModel.panelWillShow()
         panel.setFrame(startFrame, display: false)
+        pinContentToTop()
         panel.makeKeyAndOrderFront(nil)
         isShown = true
         animate(to: endFrame, duration: Self.showDuration)
@@ -91,7 +109,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         isAnimatingOut = true
         isShown = false
 
-        let downFrame = panel.frame.offsetBy(dx: 0, dy: -panel.frame.height - 8)
+        // show() と同じ理由で、画面外へ動かす代わりに高さを畳んで消す
+        var downFrame = panel.frame
+        downFrame.size.height = Self.collapsedHeight
         animate(to: downFrame, duration: Self.hideDuration) { [weak self] in
             self?.panel.orderOut(nil)
             self?.isAnimatingOut = false
@@ -181,6 +201,19 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     // MARK: - 内部処理
+
+    /// 中身を窓の上端に張り付ける。窓の高さが collapsedHeight のときは中身のほぼ全体が
+    /// 窓の下端からはみ出すが、窓の外は描画されないので画面には映らない。
+    /// 画面が変わると窓の幅も変わるため、表示のたびに呼び直す
+    private func pinContentToTop() {
+        guard let container = panel.contentView else { return }
+        hostingView.frame = NSRect(
+            x: 0,
+            y: container.bounds.height - Self.panelHeight,
+            width: container.bounds.width,
+            height: Self.panelHeight
+        )
+    }
 
     private func animate(to frame: NSRect, duration: TimeInterval, completion: (() -> Void)? = nil) {
         NSAnimationContext.runAnimationGroup({ context in
