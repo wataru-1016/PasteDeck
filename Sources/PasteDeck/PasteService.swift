@@ -70,11 +70,15 @@ final class PasteService {
         pasteboard.setString(item.preview, forType: .string)
     }
 
+    /// 権限が無いときの案内。
+    ///
+    /// macOS 自身の許可ダイアログ（`kAXTrustedCheckOptionPrompt`）はここでは要求しない。
+    /// 要求すると自前の案内と同時に 2 枚重なってしまう。かといってシステム側だけに任せる
+    /// こともできず、あれは 1 つのアプリに対して一度しか表示されないため、閉じられたあとは
+    /// 何の反応もないまま貼り付けに失敗し続けることになる。案内は自前のものに一本化し、
+    /// システムへの要求は「システム設定を開く」を押したときだけ行う
     private func ensureAccessibilityPermission() -> Bool {
         if AXIsProcessTrusted() { return true }
-
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
 
         if !didShowAccessibilityHint {
             didShowAccessibilityHint = true
@@ -93,9 +97,19 @@ final class PasteService {
         """
         alert.addButton(withTitle: "システム設定を開く")
         alert.addButton(withTitle: "あとで")
-        if alert.runModal() == .alertFirstButtonReturn {
-            Self.openAccessibilitySettings()
-        }
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        Self.requestAccessibilityRegistration()
+        Self.openAccessibilitySettings()
+    }
+
+    /// アクセシビリティの一覧に PasteDeck の項目を作らせる。
+    /// 項目が無いと ＋ ボタンからアプリを探して追加することになるため、設定を開く前に要求する。
+    /// この要求で macOS がダイアログを出すのは一度きりで、しかもユーザーが
+    /// 「システム設定を開く」を押した結果なので、貼り付け操作の最中に警告が重なることはない
+    private static func requestAccessibilityRegistration() {
+        let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        AXIsProcessTrustedWithOptions([promptKey: true] as CFDictionary)
     }
 
     static func openAccessibilitySettings() {
