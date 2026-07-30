@@ -117,7 +117,9 @@ struct PanelView: View {
                 .foregroundStyle(viewModel.pinnedOnly ? Color.white : Color.secondary)
         }
         .buttonStyle(.plain)
-        .help("ピン留めした項目だけを表示")
+        // キー表記はここに出す。上部バーのショートカット一覧（KeyHintsView）は
+        // 固定幅の検索欄と横幅を取り合っているため、常時可視なこのボタン側に添える
+        .help("ピン留めした項目だけを表示（⇧⌘P）")
     }
 
     // MARK: - カード列

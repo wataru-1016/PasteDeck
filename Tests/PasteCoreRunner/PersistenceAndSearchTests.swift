@@ -105,4 +105,25 @@ func runSearchFilterTests(_ t: TestHarness) {
         t.expect(SearchFilter.apply(items, query: "final", pinnedOnly: false).count == 1, "デコード済みファイル名に一致")
         t.expect(SearchFilter.apply(items, query: "", pinnedOnly: true) == [pinned], "ピン留めのみ")
     }
+
+    // ⇧⌘P でピン留めフィルターを掛けたまま検索できるため、2 つの絞り込みは重なる
+    t.run("ピン留めフィルターと検索の合成") { t in
+        let pinnedHit = makeItem(preview: "pinned meeting note", isPinned: true)
+        let pinnedMiss = makeItem(preview: "pinned grocery list", isPinned: true)
+        let unpinnedHit = makeItem(preview: "meeting note draft")
+        let items = [pinnedHit, pinnedMiss, unpinnedHit]
+
+        t.expect(
+            SearchFilter.apply(items, query: "meeting", pinnedOnly: true) == [pinnedHit],
+            "ピン留め かつ 検索一致のものだけ残る"
+        )
+        t.expect(
+            SearchFilter.apply(items, query: "meeting", pinnedOnly: false).count == 2,
+            "フィルターを外すと未ピンの一致も含む"
+        )
+        t.expect(
+            SearchFilter.apply(items, query: "missing", pinnedOnly: true).isEmpty,
+            "ピン留めがあってもクエリが不一致なら 0 件"
+        )
+    }
 }

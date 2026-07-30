@@ -16,6 +16,10 @@ final class PanelController: NSObject, NSWindowDelegate {
     private static let hideDuration: TimeInterval = 0.16
     /// 畳んだときの窓の高さ。0 は AppKit が最小サイズへ丸めることがあるため 1 にする
     private static let collapsedHeight: CGFloat = 1
+    /// キー判定で意味を持つ修飾キー。`.deviceIndependentFlagsMask` には capsLock や
+    /// numericPad も含まれるため、そのまま完全一致で比べると Caps Lock を点けている
+    /// だけで ⌘P が成立しなくなる。判定に使う 4 つだけに絞る
+    private static let significantModifiers: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
 
     private let panel: KeyablePanel
     private let hostingView: NSHostingView<PanelView>
@@ -148,7 +152,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         // 変換範囲の調整、esc は変換の取り消しに使われるため、ここで奪うと検索が打てない
         if isComposingText { return event }
 
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let modifiers = event.modifierFlags.intersection(Self.significantModifiers)
 
         if viewModel.editingItem != nil {
             return handleEditingKey(event, modifiers: modifiers)
@@ -167,13 +171,21 @@ final class PanelController: NSObject, NSWindowDelegate {
         case 36, 76:  // return / keypad enter
             viewModel.activateSelected(plainTextOnly: modifiers.contains(.shift))
             return nil
-        case 51 where modifiers.contains(.command):  // ⌘⌫
+        // 修飾キーは `contains(.command)` ではなく完全一致で判定する。
+        // `contains` は ⇧⌘ の組み合わせにも一致するため、⌘◯ と ⇧⌘◯ を
+        // 別の動作に割り当てられなくなる
+        case 51 where modifiers == .command:  // ⌘⌫
             viewModel.deleteSelected()
             return nil
-        case 35 where modifiers.contains(.command):  // ⌘P
+        // ⇧⌘P は ⌘P より先に置く。switch は上から順にマッチするため、
+        // 逆順だと ⇧⌘P が ⌘P の分岐に吸われて到達しない
+        case 35 where modifiers == [.command, .shift]:  // ⇧⌘P
+            viewModel.pinnedOnly.toggle()
+            return nil
+        case 35 where modifiers == .command:  // ⌘P
             viewModel.togglePinSelected()
             return nil
-        case 14 where modifiers.contains(.command):  // ⌘E
+        case 14 where modifiers == .command:  // ⌘E
             viewModel.beginEditingSelected()
             return nil
         default:
