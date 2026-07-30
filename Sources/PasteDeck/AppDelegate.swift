@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var retentionTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 検索欄で ⌘A・⌘C・⌘X・⌘V・⌘Z を効かせるために必要（詳細は MainMenu）
+        NSApp.mainMenu = MainMenu.make()
+
         let persistence: Persistence
         do {
             persistence = try Persistence(rootURL: Persistence.defaultRootURL())

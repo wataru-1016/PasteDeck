@@ -114,8 +114,20 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// 検索欄で未確定の変換文字列（marked text）を持っているか。
+    /// SwiftUI の `TextField` はフィールドエディタ（`NSTextView`）を first responder にするため、
+    /// `NSTextInputClient` として問い合わせられる
+    private var isComposingText: Bool {
+        guard let client = panel.firstResponder as? NSTextInputClient else { return false }
+        return client.hasMarkedText()
+    }
+
     /// 消費したら nil、検索フィールドへ流すならイベントを返す
     private func handleKey(_ event: NSEvent) -> NSEvent? {
+        // 日本語入力の変換中はすべてのキーを IME へ渡す。↩ は変換の確定、← → は
+        // 変換範囲の調整、esc は変換の取り消しに使われるため、ここで奪うと検索が打てない
+        if isComposingText { return event }
+
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         switch event.keyCode {

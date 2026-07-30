@@ -9,7 +9,11 @@ struct KeyHintsView: View {
     private static let labelFontSize: Double = 12
     /// `⌘⌫` のような 2 文字のキーと `↩` のような 1 文字のキーで
     /// チップの大きさが揃うようにする下限幅
-    private static let keycapMinWidth: Double = 22
+    private static let keycapMinWidth: Double = 27
+    /// 「キー＋説明」の組どうしの間隔。組の内側（`itemSpacing`）より広く取って、
+    /// どのキーがどの動作に対応しているかが間隔だけで読み取れるようにする
+    private static let groupSpacing: Double = 20
+    private static let itemSpacing: Double = 7
 
     private struct KeyHint: Identifiable {
         let key: String
@@ -28,9 +32,9 @@ struct KeyHintsView: View {
     ]
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Self.groupSpacing) {
             ForEach(Self.hints) { hint in
-                HStack(spacing: 5) {
+                HStack(spacing: Self.itemSpacing) {
                     keycap(hint.key)
                     Text(hint.label)
                         .font(.system(size: Self.labelFontSize))
@@ -49,8 +53,8 @@ struct KeyHintsView: View {
         return Text(key)
             .font(.system(size: Self.keyFontSize, weight: .semibold))
             .foregroundStyle(.primary.opacity(0.8))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
             .frame(minWidth: Self.keycapMinWidth)
             .background(shape.fill(Color.primary.opacity(0.09)))
             .overlay(shape.stroke(Color.primary.opacity(0.14), lineWidth: 1))

@@ -45,7 +45,7 @@ struct PanelView: View {
     // MARK: - 上部バー
 
     private var topBar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 18) {
             HStack(spacing: 7) {
                 Image(systemName: "square.stack.fill")
                     .foregroundStyle(Color.accentColor)
