@@ -12,6 +12,7 @@
 - 同じ内容をもう一度コピーしても重複せず、先頭に並び直すだけです
 - 1Password などのパスワードマネージャーがコピーする **秘匿データは履歴に残しません**
 - 画像はサムネイル、ファイルは Finder と同じ **Quick Look プレビュー** 付きのカードで表示されます
+- Excel や Word からコピーしたテキストは、**コピー元の書式を反映してカードに表示**されます（文字色・太さ・大きさ・フォント・下線・セルの塗りつぶし）。貼り付ける前に「どのセルをコピーしたか」がひと目で分かります。カードに収まるよう文字の大きさは調整され、ライト／ダークどちらでも読めるように配色を補います
 
 ## 動作環境
 
@@ -89,7 +90,7 @@ open /Applications/PasteDeck.app
 
 ```bash
 swift run PasteDeck             # .app を作らず直接実行
-swift run PasteCoreTestRunner   # コアロジックのテスト（20 件）
+swift run PasteCoreTestRunner   # コアロジックのテスト（35 件）
 ```
 
 アイコンはコードで描画しています。[scripts/generate-icon.swift](scripts/generate-icon.swift) を編集 → 1024px PNG を生成 → `sips` で各解像度に縮小 → `iconutil` で `Resources/AppIcon.icns` に変換、という流れで差し替えられます。

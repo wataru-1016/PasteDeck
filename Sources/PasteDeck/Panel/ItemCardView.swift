@@ -128,11 +128,7 @@ struct ItemCardView: View {
     private var bodyContent: some View {
         switch item.kind {
         case .text:
-            Text(item.preview)
-                .font(.system(size: 12.5))
-                .lineLimit(8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(12)
+            TextBodyView(item: item, persistence: viewModel.store.persistence)
 
         case .link:
             VStack(alignment: .leading, spacing: 6) {
@@ -215,6 +211,38 @@ struct ItemCardView: View {
             return ByteCountFormatter.string(fromByteCount: Int64(item.byteSize), countStyle: .file)
         case .fileList:
             return "\(item.fileURLs?.count ?? 0) ファイル"
+        }
+    }
+}
+
+/// テキストアイテムの本文表示。
+/// Excel・Word などのコピーは RTF flavor に元の書式を持つため、読み込めた場合は
+/// コピー元の色・太さ・サイズ・フォントを反映する。無ければプレーン表示のまま
+private struct TextBodyView: View {
+    let item: ClipboardItem
+    let persistence: Persistence
+
+    @State private var richText: AttributedString?
+
+    var body: some View {
+        content
+            .lineLimit(8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(12)
+            .onAppear {
+                RichTextProvider.shared.richText(for: item, persistence: persistence) { result in
+                    richText = result
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let richText {
+            Text(richText)
+        } else {
+            Text(item.preview)
+                .font(.system(size: RichTextStyle.baseFontSize))
         }
     }
 }
