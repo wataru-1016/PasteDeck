@@ -129,7 +129,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             viewModel.moveSelection(1)
             return nil
         case 36, 76:  // return / keypad enter
-            viewModel.activateSelected(plainTextOnly: modifiers.contains(.option))
+            viewModel.activateSelected(plainTextOnly: modifiers.contains(.shift))
             return nil
         case 51 where modifiers.contains(.command):  // ⌘⌫
             viewModel.deleteSelected()

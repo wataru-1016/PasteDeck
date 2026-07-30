@@ -60,14 +60,11 @@ struct PanelView: View {
             Spacer(minLength: 12)
 
             Text("\(viewModel.visible.count) 件")
-                .font(.caption)
+                .font(.system(size: 13, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
 
-            Text("↩ 貼り付け　⌥↩ プレーン　⌘P ピン　⌘⌫ 削除　esc 閉じる")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+            KeyHintsView()
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)

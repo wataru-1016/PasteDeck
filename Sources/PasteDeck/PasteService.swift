@@ -7,6 +7,11 @@ import PasteCore
 final class PasteService {
     private static let keystrokeDelay: TimeInterval = 0.12
     private static let vKeyCode: CGKeyCode = 9  // kVK_ANSI_V
+    /// 押されたままの修飾キーが離れるのを待つ上限。超えたら諦めて送出する
+    private static let modifierReleaseTimeout: TimeInterval = 0.4
+    private static let modifierPollInterval: TimeInterval = 0.02
+    /// 合成 ⌘V に混ざると困る修飾キー。⌘ 自身は送出したいので含めない
+    private static let conflictingModifiers: NSEvent.ModifierFlags = [.shift, .option, .control]
 
     private let store: HistoryStore
     private let monitor: ClipboardMonitor
@@ -43,7 +48,7 @@ final class PasteService {
 
         let flavors = store.flavors(for: item.id) ?? [:]
 
-        // ⌥Enter はプレーンテキスト flavor がある場合のみプレーン化し、
+        // ⇧Enter はプレーンテキスト flavor がある場合のみプレーン化し、
         // ない種別（画像など）は通常貼り付けへフォールバックする
         if plainTextOnly,
            let data = flavors[CaptureRules.plainTextType],
@@ -100,7 +105,22 @@ final class PasteService {
         }
     }
 
-    private static func postCommandV() {
+    /// 前面アプリへ ⌘V を送る。
+    ///
+    /// 押されたままの物理修飾キーは合成イベントに混ざる。⇧Enter で貼り付けた直後は
+    /// ⇧ が残っていることがあり、そのまま送ると前面アプリには ⇧⌘V が届く。
+    /// これは PasteDeck 自身のグローバルホットキーでもあるため、貼り付けの代わりに
+    /// パネルが開き直ってしまう（⌥ でも「⌥⌘V が届く」同じ問題が起きる）。
+    /// 離されるのを短い時間だけ待ち、待ちきれなければそのまま送出する
+    private static func postCommandV(waited: TimeInterval = 0) {
+        let isBlocked = !NSEvent.modifierFlags.intersection(conflictingModifiers).isEmpty
+        if isBlocked, waited < modifierReleaseTimeout {
+            DispatchQueue.main.asyncAfter(deadline: .now() + modifierPollInterval) {
+                postCommandV(waited: waited + modifierPollInterval)
+            }
+            return
+        }
+
         guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
