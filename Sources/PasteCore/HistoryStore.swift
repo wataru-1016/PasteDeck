@@ -141,6 +141,51 @@ public final class HistoryStore: ObservableObject {
         items.lazy.filter { !$0.isPinned }.count
     }
 
+    // MARK: - 編集
+
+    /// アイテムのテキストを差し替える（⌘E での編集）。
+    ///
+    /// 装飾（RTF・HTML）や画像の flavor は破棄し、プレーンテキストだけのアイテムにする。
+    /// 理由は `TextEditRules` を参照。派生値（種別・preview・文字数・バイト数・ハッシュ）は
+    /// すべて引き直す。ID・ピン状態・並び順・コピー元アプリは保持する
+    public func replaceText(_ text: String, for id: UUID) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let original = items[index]
+        guard TextEditRules.canEdit(kind: original.kind, byteSize: original.byteSize) else { return }
+
+        // URL を編集して URL でなくなる（またはその逆）ことがあるため種別も引き直す
+        guard let kind = CaptureRules.detectKind(
+            text: text,
+            hasImage: false,
+            fileURLCount: 0
+        ) else { return }
+
+        let flavors = TextEditRules.flavors(forEditedText: text)
+        do {
+            try persistence.saveFlavors(flavors, id: id)
+        } catch {
+            Log.error("編集内容の保存に失敗しました: \(error)")
+            return
+        }
+
+        var updated = items
+        updated[index] = ClipboardItem(
+            id: original.id,
+            kind: kind,
+            preview: CaptureRules.makePreview(text),
+            charCount: text.count,
+            fileURLs: nil,
+            sourceAppName: original.sourceAppName,
+            sourceAppBundleID: original.sourceAppBundleID,
+            createdAt: original.createdAt,
+            isPinned: original.isPinned,
+            byteSize: flavors.values.reduce(0) { $0 + $1.count },
+            contentHash: CaptureRules.contentHash(flavors: flavors, fileURLs: [])
+        )
+        items = updated
+        persistIndex()
+    }
+
     // MARK: - 内部処理
 
     private func persistIndex() {

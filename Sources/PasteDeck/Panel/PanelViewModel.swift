@@ -11,6 +11,14 @@ final class PanelViewModel: ObservableObject {
     /// インクリメントすると検索フィールドへフォーカスが移る
     @Published var focusToken = 0
 
+    /// ⌘E で編集中のアイテム。nil なら編集していない
+    @Published private(set) var editingItem: ClipboardItem?
+    @Published var editingText = ""
+    /// 保存すると装飾が破棄されるか。編集画面での事前警告に使う
+    @Published private(set) var editingDiscardsDecoration = false
+
+    private var editingOriginalText = ""
+
     let store: HistoryStore
     /// アイテム決定時（Enter / ダブルクリック）の処理。PanelController が設定する
     var onActivate: ((ClipboardItem, _ plainTextOnly: Bool) -> Void)?
@@ -91,6 +99,49 @@ final class PanelViewModel: ObservableObject {
     func togglePinSelected() {
         guard let item = selectedItem else { return }
         togglePin(item)
+    }
+
+    // MARK: - テキスト編集（⌘E）
+
+    /// 選択中アイテムの編集を開始する。
+    /// 編集対象は `preview`（先頭 400 文字）ではなく flavor に入っている全文
+    func beginEditingSelected() {
+        guard let item = selectedItem,
+              TextEditRules.canEdit(kind: item.kind, byteSize: item.byteSize)
+        else { return }
+
+        let flavors = store.flavors(for: item.id) ?? [:]
+        guard let data = flavors[CaptureRules.plainTextType],
+              let text = String(data: data, encoding: .utf8)
+        else { return }
+
+        editingOriginalText = text
+        editingText = text
+        editingDiscardsDecoration = TextEditRules.discardsDecoration(flavors)
+        editingItem = item
+    }
+
+    func commitEditing() {
+        guard let item = editingItem else { return }
+        if TextEditRules.shouldSave(editingText, original: editingOriginalText) {
+            store.replaceText(editingText, for: item.id)
+            // 装飾を破棄したので、キャッシュ済みの装飾付き表示を捨てて読み直させる
+            RichTextProvider.shared.invalidate(id: item.id)
+        }
+        endEditing()
+    }
+
+    func cancelEditing() {
+        endEditing()
+    }
+
+    private func endEditing() {
+        editingItem = nil
+        editingText = ""
+        editingOriginalText = ""
+        editingDiscardsDecoration = false
+        // 編集欄を閉じたあとは検索欄へフォーカスを戻す
+        focusToken += 1
     }
 
     private func ensureSelectionValid() {

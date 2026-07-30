@@ -229,11 +229,16 @@ private struct TextBodyView: View {
             .lineLimit(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(12)
-            .onAppear {
-                RichTextProvider.shared.richText(for: item, persistence: persistence) { result in
-                    richText = result
-                }
-            }
+            .onAppear { loadRichText() }
+            // ⌘E で編集したあとも同じカードが使い回されて onAppear が再発火しないため、
+            // 内容の変化（ハッシュ）を見て読み直す
+            .onChange(of: item.contentHash) { loadRichText() }
+    }
+
+    private func loadRichText() {
+        RichTextProvider.shared.richText(for: item, persistence: persistence) { result in
+            richText = result
+        }
     }
 
     @ViewBuilder

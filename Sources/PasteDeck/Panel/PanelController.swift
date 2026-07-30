@@ -130,6 +130,10 @@ final class PanelController: NSObject, NSWindowDelegate {
 
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
+        if viewModel.editingItem != nil {
+            return handleEditingKey(event, modifiers: modifiers)
+        }
+
         switch event.keyCode {
         case 53:  // esc
             hide()
@@ -148,6 +152,28 @@ final class PanelController: NSObject, NSWindowDelegate {
             return nil
         case 35 where modifiers.contains(.command):  // ⌘P
             viewModel.togglePinSelected()
+            return nil
+        case 14 where modifiers.contains(.command):  // ⌘E
+            viewModel.beginEditingSelected()
+            return nil
+        default:
+            return event
+        }
+    }
+
+    /// 編集中のキー操作。↩ は改行として編集欄へ渡すため、保存は ⌘↩ に割り当てる。
+    /// ⌘A や ⌘C などの標準編集キーは `default` で通し、メインメニュー（`MainMenu`）へ任せる
+    private func handleEditingKey(
+        _ event: NSEvent,
+        modifiers: NSEvent.ModifierFlags
+    ) -> NSEvent? {
+        switch event.keyCode {
+        case 53:  // esc
+            viewModel.cancelEditing()
+            return nil
+        case 36, 76:  // return / keypad enter
+            guard modifiers.contains(.command) else { return event }
+            viewModel.commitEditing()
             return nil
         default:
             return event

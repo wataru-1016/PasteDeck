@@ -13,6 +13,7 @@ struct PanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(panelBackground)
+        .overlay(editorOverlay)
         .clipShape(panelShape)
         .overlay(panelShape.stroke(.white.opacity(0.14), lineWidth: 1))
         .onChange(of: viewModel.focusToken) {
@@ -39,6 +40,14 @@ struct PanelView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
+        }
+    }
+
+    /// ⌘E の編集画面。パネル内に重ねる（別ウィンドウにするとパネルが閉じてしまう）
+    @ViewBuilder
+    private var editorOverlay: some View {
+        if viewModel.editingItem != nil {
+            TextEditorOverlay(viewModel: viewModel)
         }
     }
 

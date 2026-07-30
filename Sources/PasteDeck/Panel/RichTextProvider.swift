@@ -35,6 +35,12 @@ final class RichTextProvider {
         cache.countLimit = 200
     }
 
+    /// アイテムの内容が変わったときにキャッシュを捨てる。
+    /// ⌘E の編集で装飾を破棄しても、捨てないと古い装飾付きの表示が残ってしまう
+    func invalidate(id: UUID) {
+        cache.removeObject(forKey: id.uuidString as NSString)
+    }
+
     func richText(
         for item: ClipboardItem,
         persistence: Persistence,

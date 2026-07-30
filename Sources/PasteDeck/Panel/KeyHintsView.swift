@@ -26,6 +26,7 @@ struct KeyHintsView: View {
     private static let hints = [
         KeyHint(key: "↩", label: "貼り付け"),
         KeyHint(key: "⇧↩", label: "プレーン"),
+        KeyHint(key: "⌘E", label: "編集"),
         KeyHint(key: "⌘P", label: "ピン"),
         KeyHint(key: "⌘⌫", label: "削除"),
         KeyHint(key: "esc", label: "閉じる"),

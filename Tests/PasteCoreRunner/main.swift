@@ -7,5 +7,6 @@ runHistoryStoreTests(harness)
 runPersistenceTests(harness)
 runSearchFilterTests(harness)
 runRichTextStyleTests(harness)
+runTextEditTests(harness)
 
 harness.finish()
