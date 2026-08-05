@@ -12,14 +12,13 @@ struct ImageEditSource {
     let image: CGImage
     /// キャンバスへ出す縮小版
     let display: NSImage
+    /// モザイク用に、縮小版の全体をあらかじめ粗くしたもの。
+    /// 範囲ごとに作らず 1 枚で持つことで、塗り重ねてもマス目の位置がそろう
+    let mosaicDisplay: NSImage
     /// ピクセル ÷ ポイント。Retina のスクリーンショットは 2。
     /// 保存時にこの比を戻さないと、貼り付け先で 2 倍の大きさになる
     let logicalScale: CGFloat
-    /// この画像に対する線の太さ（画像ピクセル単位）
-    let lineWidth: CGFloat
 
-    var pixelWidth: Int { image.width }
-    var pixelHeight: Int { image.height }
     var size: CGSize { CGSize(width: image.width, height: image.height) }
 }
 
@@ -38,15 +37,21 @@ enum ImageEditLoader {
               ImageEditRules.canEdit(pixelWidth: image.width, pixelHeight: image.height)
         else { return nil }
 
-        guard let display = ImageDownsampler.image(from: data, maxPixelSize: displayMaxPixelSize)
+        guard let display = ImageDownsampler.cgImage(from: data, maxPixelSize: displayMaxPixelSize)
         else { return nil }
 
         let size = CGSize(width: image.width, height: image.height)
+        // 縮小版のマス目は、縮んだぶんだけ小さくする。同じ大きさで作ると、
+        // 画面では粗いのに保存すると細かい（またはその逆）という食い違いが出る
+        let displayScale = CGFloat(display.width) / CGFloat(image.width)
+        let block = ImageEditRules.mosaicBlockSize(forImageSize: size) * displayScale
+        let mosaic = ImageBitmap.pixelated(display, block: block) ?? display
+
         return ImageEditSource(
             image: image,
-            display: display,
-            logicalScale: logicalScale(of: data, pixelWidth: image.width),
-            lineWidth: ImageEditRules.lineWidth(forImageSize: size)
+            display: ImageDownsampler.nsImage(display),
+            mosaicDisplay: ImageDownsampler.nsImage(mosaic),
+            logicalScale: logicalScale(of: data, pixelWidth: image.width)
         )
     }
 
@@ -59,6 +64,8 @@ enum ImageEditLoader {
     }
 }
 
+// MARK: - PasteCore の値を描画 API へ橋渡しする
+
 extension StrokeColor {
     var cgColor: CGColor {
         CGColor(srgbRed: red, green: green, blue: blue, alpha: alpha)
@@ -66,5 +73,23 @@ extension StrokeColor {
 
     var swiftUIColor: Color {
         Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha)
+    }
+}
+
+/// 書き込む文字の書体。プレビュー（SwiftUI）と保存（Core Text）で同じ形になるよう、
+/// 定義はここ 1 か所にまとめる
+enum ImageTextStyle {
+    static func swiftUIFont(size: CGFloat) -> Font {
+        .system(size: size, weight: .semibold)
+    }
+
+    /// Core Text へ直接渡す属性。`NSAttributedString.Key.foregroundColor` は
+    /// AppKit 側の鍵なので、`CTLineDraw` に確実に効く CT の鍵を使う
+    static func coreTextAttributes(size: CGFloat, color: StrokeColor) -> [NSAttributedString.Key: Any] {
+        [
+            NSAttributedString.Key(kCTFontAttributeName as String):
+                NSFont.systemFont(ofSize: size, weight: .semibold),
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): color.cgColor,
+        ]
     }
 }

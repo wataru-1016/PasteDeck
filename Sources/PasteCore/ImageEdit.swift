@@ -1,26 +1,39 @@
 import CoreGraphics
 import Foundation
 
-/// 画像編集（⌘E）で使う道具
+/// 画像編集（⌘E）で使う道具。
+/// 宣言した順がツールバーの並びであり、数字キー（1〜6）の割り当てでもある
 public enum ImageTool: String, Equatable, CaseIterable, Sendable {
-    /// フリーハンドの線
-    case pen
     /// 塗りつぶした矩形。見せたくない部分を隠すのに使う
     case redaction
+    /// 選んだ範囲を粗くして読めなくする
+    case mosaic
+    /// フリーハンドの線
+    case pen
     /// 矢印
     case arrow
+    /// 文字の書き込み
+    case text
     /// 切り抜き範囲の指定
     case crop
 
     /// ドラッグの通過点をすべて形に使うか。false なら始点と終点だけで形が決まる
     public var usesAllPoints: Bool { self == .pen }
 
-    /// 描く色。道具ごとに固定する（色の選択は持たない）
-    public var color: StrokeColor {
+    /// 色と太さを選べる道具か。
+    ///
+    /// 隠す道具（黒塗り・モザイク）とトリミングでは選ばせない。半透明の色や
+    /// 粗さの足りないモザイクを選べてしまうと、隠したつもりで隠せていない画像ができる
+    public var usesStyle: Bool {
         switch self {
-        case .redaction: return .black
-        case .pen, .arrow, .crop: return .marker
+        case .pen, .arrow, .text: return true
+        case .redaction, .mosaic, .crop: return false
         }
+    }
+
+    /// 実際に使う色。選べない道具は不透明な黒で固定する
+    public func color(selected: StrokeColor) -> StrokeColor {
+        usesStyle ? selected : .black
     }
 }
 
@@ -42,19 +55,76 @@ public struct StrokeColor: Equatable, Sendable {
     public static let black = StrokeColor(red: 0, green: 0, blue: 0)
     /// 注釈用の赤。スクリーンショットの地の色に埋もれない彩度にする
     public static let marker = StrokeColor(red: 0.91, green: 0.17, blue: 0.16)
+
+    /// 選べる色。白と黒も混ぜてあるのは、地の色と同系統になって
+    /// 文字や矢印が見えなくなったときの逃げ道を残すため
+    public static let choices: [StrokeColorChoice] = [
+        StrokeColorChoice(name: "赤", color: .marker),
+        StrokeColorChoice(name: "黄", color: StrokeColor(red: 0.98, green: 0.74, blue: 0.09)),
+        StrokeColorChoice(name: "緑", color: StrokeColor(red: 0.16, green: 0.68, blue: 0.35)),
+        StrokeColorChoice(name: "青", color: StrokeColor(red: 0.11, green: 0.47, blue: 0.95)),
+        StrokeColorChoice(name: "白", color: StrokeColor(red: 1, green: 1, blue: 1)),
+        StrokeColorChoice(name: "黒", color: .black),
+    ]
 }
 
-/// 1 回のドラッグで確定した描き込み。
+/// 色の選択肢 1 つ分
+public struct StrokeColorChoice: Equatable, Sendable, Identifiable {
+    public let name: String
+    public let color: StrokeColor
+
+    public var id: String { name }
+
+    public init(name: String, color: StrokeColor) {
+        self.name = name
+        self.color = color
+    }
+}
+
+/// 線の太さ（文字では大きさ）の選択。
+/// 実際の寸法は画像の大きさにも比例させる（`ImageEditRules.lineWidth(forImageSize:weight:)`）
+public enum StrokeWeight: String, Equatable, CaseIterable, Sendable {
+    case thin
+    case regular
+    case bold
+
+    /// 標準の太さに対する倍率
+    public var multiplier: CGFloat {
+        switch self {
+        case .thin: return 0.6
+        case .regular: return 1
+        case .bold: return 1.8
+        }
+    }
+}
+
+/// 1 回の操作で確定した描き込み。
 /// 座標は元画像のピクセル（左上原点）で、線幅も画像ピクセル単位
 public struct ImageStroke: Equatable, Sendable {
     public let tool: ImageTool
     public let points: [CGPoint]
+    /// 線の太さ（画像ピクセル）。文字の大きさもここから決まる
+    /// （`ImageEditRules.fontSize(forLineWidth:)`）
     public let lineWidth: CGFloat
+    /// 実際に描く色。`tool` が色を選べない道具なら、渡した色に関わらず黒になる
+    public let color: StrokeColor
+    /// `tool == .text` のときに書き込む文字。ほかの道具では空
+    public let text: String
 
-    public init(tool: ImageTool, points: [CGPoint], lineWidth: CGFloat) {
+    public init(
+        tool: ImageTool,
+        points: [CGPoint],
+        lineWidth: CGFloat,
+        color: StrokeColor = .marker,
+        text: String = ""
+    ) {
         self.tool = tool
         self.points = points
         self.lineWidth = lineWidth
+        // 道具に色を決めさせる。呼び出し側の渡し忘れで黒塗りが赤くなるような
+        // 取り違えは、隠し損ねに直結するので型の側で防ぐ
+        self.color = tool.color(selected: color)
+        self.text = text
     }
 
     /// 始点と終点。矩形・矢印の形はこの 2 点だけで決まる

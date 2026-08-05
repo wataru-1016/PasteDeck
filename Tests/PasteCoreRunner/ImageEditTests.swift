@@ -32,9 +32,10 @@ private func isClose(_ a: CGPoint, _ b: CGPoint, tolerance: CGFloat = 0.0001) ->
 private func stroke(
     _ tool: ImageTool,
     _ points: [CGPoint],
-    lineWidth: CGFloat = 6
+    lineWidth: CGFloat = 6,
+    text: String = ""
 ) -> ImageStroke {
-    ImageStroke(tool: tool, points: points, lineWidth: lineWidth)
+    ImageStroke(tool: tool, points: points, lineWidth: lineWidth, text: text)
 }
 
 func runImageEditTests(_ t: TestHarness) {
@@ -263,6 +264,14 @@ func runImageEditTests(_ t: TestHarness) {
             "十分な大きさの黒塗りは残す"
         )
         t.expect(
+            !ImageEditRules.isDrawable(stroke(.mosaic, [.zero, CGPoint(x: 1, y: 1)])),
+            "極小のモザイクは誤クリックとみなす"
+        )
+        t.expect(
+            ImageEditRules.isDrawable(stroke(.mosaic, [.zero, CGPoint(x: 40, y: 30)])),
+            "十分な大きさのモザイクは残す"
+        )
+        t.expect(
             !ImageEditRules.isDrawable(stroke(.arrow, [.zero, CGPoint(x: 1, y: 1)])),
             "極端に短い矢印は残さない"
         )
@@ -270,6 +279,14 @@ func runImageEditTests(_ t: TestHarness) {
             !ImageEditRules.isDrawable(stroke(.crop, [.zero, CGPoint(x: 40, y: 40)])),
             "切り抜きは描き込みではない"
         )
+    }
+
+    t.run("中身のない文字は書き込まない") { t in
+        let anchor = [CGPoint(x: 10, y: 10)]
+        t.expect(ImageEditRules.isDrawable(stroke(.text, anchor, text: "ここ")), "文字があれば残す")
+        t.expect(!ImageEditRules.isDrawable(stroke(.text, anchor, text: "")), "空文字は残さない")
+        t.expect(!ImageEditRules.isDrawable(stroke(.text, anchor, text: "　 \n")), "空白だけも残さない")
+        t.expect(!ImageEditRules.isDrawable(stroke(.text, [], text: "ここ")), "置く位置が無ければ残さない")
     }
 
     t.run("線幅は画像の大きさに合わせて決まる") { t in
@@ -280,6 +297,132 @@ func runImageEditTests(_ t: TestHarness) {
         t.expect(small >= 2, "小さい画像でも見える太さを保つ")
         t.expect(medium > small, "大きい画像ほど太くなる")
         t.expect(huge <= 20, "太くなりすぎない")
+    }
+
+    print("ImageEditRules（色・太さ・文字・モザイク）:")
+
+    t.run("隠す道具は色を選ばせず黒で固定する") { t in
+        let blue = StrokeColor(red: 0, green: 0, blue: 1)
+
+        t.expect(ImageTool.pen.usesStyle, "ペンは色と太さを選べる")
+        t.expect(ImageTool.arrow.usesStyle, "矢印は色と太さを選べる")
+        t.expect(ImageTool.text.usesStyle, "文字は色と大きさを選べる")
+        t.expect(!ImageTool.redaction.usesStyle, "黒塗りは選ばせない")
+        t.expect(!ImageTool.mosaic.usesStyle, "モザイクは選ばせない")
+        t.expect(!ImageTool.crop.usesStyle, "トリミングに色は無い")
+
+        t.expect(ImageTool.pen.color(selected: blue) == blue, "ペンは選んだ色で描く")
+        t.expect(
+            ImageTool.redaction.color(selected: blue) == .black,
+            "黒塗りは何を選んでいても不透明な黒で塗る"
+        )
+        t.expect(StrokeColor.black.alpha == 1, "隠す色は透けない")
+    }
+
+    t.run("描き込みの色は道具が決める") { t in
+        let blue = StrokeColor(red: 0, green: 0, blue: 1)
+        let points = [CGPoint.zero, CGPoint(x: 40, y: 30)]
+
+        // 呼び出し側の渡し忘れ・渡し間違いで隠す色が変わってはいけない
+        t.expect(
+            ImageStroke(tool: .redaction, points: points, lineWidth: 6, color: blue).color == .black,
+            "黒塗りは渡した色を無視して黒になる"
+        )
+        t.expect(
+            ImageStroke(tool: .mosaic, points: points, lineWidth: 6, color: blue).color == .black,
+            "モザイクも色を持ち込ませない"
+        )
+        t.expect(
+            ImageStroke(tool: .pen, points: points, lineWidth: 6, color: blue).color == blue,
+            "ペンは渡した色をそのまま使う"
+        )
+        t.expect(
+            ImageStroke(tool: .pen, points: points, lineWidth: 6).color == .marker,
+            "色を渡さなければ既定の赤になる"
+        )
+    }
+
+    t.run("選べる色はすべて名前が付いていて重複しない") { t in
+        let choices = StrokeColor.choices
+        t.expect(choices.count >= 4, "使い分けられるだけの数がある")
+        t.expect(choices.contains { $0.color == .marker }, "既定の赤が含まれる")
+        t.expect(
+            Set(choices.map(\.name)).count == choices.count,
+            "名前が重複しない（ForEach の id に使う）"
+        )
+        t.expect(choices.allSatisfy { $0.color.alpha == 1 }, "半透明の色は混ぜない")
+    }
+
+    t.run("太さの選択で線幅が変わる") { t in
+        let size = CGSize(width: 1600, height: 1000)
+        let thin = ImageEditRules.lineWidth(forImageSize: size, weight: .thin)
+        let regular = ImageEditRules.lineWidth(forImageSize: size, weight: .regular)
+        let bold = ImageEditRules.lineWidth(forImageSize: size, weight: .bold)
+
+        t.expect(thin < regular && regular < bold, "細 < 中 < 太 の順になる")
+        t.expect(
+            isClose(regular, ImageEditRules.lineWidth(forImageSize: size)),
+            "既定は中と同じ"
+        )
+
+        // 上限に張り付く大きさでも、選んだ太さの差は残す
+        let huge = CGSize(width: 8000, height: 8000)
+        t.expect(
+            ImageEditRules.lineWidth(forImageSize: huge, weight: .bold)
+                > ImageEditRules.lineWidth(forImageSize: huge, weight: .regular),
+            "大きい画像でも太さの違いが潰れない"
+        )
+    }
+
+    t.run("文字の大きさは線幅から決まる") { t in
+        let size = CGSize(width: 1600, height: 1000)
+        let regular = ImageEditRules.lineWidth(forImageSize: size, weight: .regular)
+        let bold = ImageEditRules.lineWidth(forImageSize: size, weight: .bold)
+
+        t.expect(
+            ImageEditRules.fontSize(forLineWidth: regular) > regular,
+            "線幅そのままでは小さすぎるので拡大する"
+        )
+        t.expect(
+            ImageEditRules.fontSize(forLineWidth: bold)
+                > ImageEditRules.fontSize(forLineWidth: regular),
+            "太さを上げると文字も大きくなる"
+        )
+    }
+
+    t.run("モザイクのマス目は画像の大きさに合わせて決まる") { t in
+        let small = ImageEditRules.mosaicBlockSize(forImageSize: CGSize(width: 120, height: 90))
+        let medium = ImageEditRules.mosaicBlockSize(forImageSize: CGSize(width: 2880, height: 1800))
+        let huge = ImageEditRules.mosaicBlockSize(forImageSize: CGSize(width: 8000, height: 8000))
+
+        t.expect(small >= 8, "小さい画像でも読めない粗さを確保する")
+        t.expect(medium > small, "大きい画像ほどマスも大きくなる")
+        t.expect(huge <= 40, "粗くなりすぎない")
+        t.expect(
+            medium > ImageEditRules.lineWidth(forImageSize: CGSize(width: 2880, height: 1800)),
+            "線幅より粗い。細かいと元の文字が読み取れてしまう"
+        )
+    }
+
+    t.run("書き込む文字は 1 行に整える") { t in
+        t.expect(ImageEditRules.sanitizedText("  ここ  ") == "ここ", "前後の空白を落とす")
+        t.expect(
+            ImageEditRules.sanitizedText("上\n下") == "上 下",
+            "改行は空白にする（行送りの計算を二重にしないため）"
+        )
+        t.expect(ImageEditRules.sanitizedText("\n\n") == "", "空白だけなら空になる")
+
+        let long = String(repeating: "あ", count: ImageEditRules.maxTextLength + 50)
+        t.expect(
+            ImageEditRules.sanitizedText(long).count == ImageEditRules.maxTextLength,
+            "上限を超えた分は切り捨てる"
+        )
+    }
+
+    t.run("道具の数は数字キーの割り当てと釣り合っている") { t in
+        // 増やしたときは PanelController.tool(forKeyCode:) のキーコードも足すこと
+        t.expect(ImageTool.allCases.count == 6, "道具は 6 つ（1〜6 のキーに対応）")
+        t.expect(ImageTool.allCases.first == .redaction, "既定の道具が先頭にある")
     }
 
     t.run("矢印の頭は先端から手前に向かって作られる") { t in

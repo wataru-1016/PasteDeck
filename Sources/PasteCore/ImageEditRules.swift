@@ -29,6 +29,17 @@ public enum ImageEditRules {
     private static let arrowHeadRatio: CGFloat = 4.5
     private static let arrowHeadSpreadRatio: CGFloat = 0.42
 
+    /// 文字の大きさを線幅から決めるときの比率
+    private static let fontSizeRatio: CGFloat = 3.5
+    /// 書き込める文字数の上限。1 行の注釈に必要な長さは超えている
+    public static let maxTextLength = 120
+
+    /// モザイク 1 マスの大きさを画像の短辺から決めるときの比率と上下限。
+    /// 粗さを選ばせないのは、細かいモザイクだと元の文字が読み取れてしまうため
+    private static let mosaicBlockRatio: CGFloat = 0.016
+    private static let minMosaicBlock: CGFloat = 8
+    private static let maxMosaicBlock: CGFloat = 40
+
     // MARK: - 編集できるか
 
     /// 編集できるアイテムか。テキストとファイルは画像を持たない
@@ -55,10 +66,35 @@ public enum ImageEditRules {
 
     // MARK: - 描き込み
 
-    /// 線幅。画像の短辺に対する比で決め、極端な太さにならないよう頭打ちにする
-    public static func lineWidth(forImageSize size: CGSize) -> CGFloat {
+    /// 線幅。画像の短辺に対する比で決め、極端な太さにならないよう頭打ちにする。
+    ///
+    /// 選んだ太さは頭打ちのあとに掛ける。先に掛けてしまうと、大きい画像では
+    /// 上限に張り付いて「太」と「中」の区別がつかなくなる
+    public static func lineWidth(forImageSize size: CGSize, weight: StrokeWeight = .regular) -> CGFloat {
         let shortSide = min(size.width, size.height)
-        return min(max(shortSide * lineWidthRatio, minLineWidth), maxLineWidth)
+        let base = min(max(shortSide * lineWidthRatio, minLineWidth), maxLineWidth)
+        return base * weight.multiplier
+    }
+
+    /// 書き込む文字の大きさ（画像ピクセル）。線幅と同じ倍率で大小が変わる
+    public static func fontSize(forLineWidth lineWidth: CGFloat) -> CGFloat {
+        lineWidth * fontSizeRatio
+    }
+
+    /// モザイク 1 マスの大きさ（画像ピクセル）
+    public static func mosaicBlockSize(forImageSize size: CGSize) -> CGFloat {
+        let shortSide = min(size.width, size.height)
+        return min(max(shortSide * mosaicBlockRatio, minMosaicBlock), maxMosaicBlock)
+    }
+
+    /// 書き込む文字を 1 行に整える。
+    /// 改行を許すと行送りの計算がプレビューと保存で二重になり、ずれの原因になる
+    public static func sanitizedText(_ text: String) -> String {
+        let singleLine = text
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(singleLine.prefix(maxTextLength))
     }
 
     /// 履歴へ残す価値のある描き込みか。ドラッグにならなかったクリックを弾く
@@ -67,12 +103,15 @@ public enum ImageEditRules {
         case .pen:
             // 点を打っただけでも印にはなるため、1 点でも受け付ける
             return !stroke.points.isEmpty
-        case .redaction:
+        case .redaction, .mosaic:
             guard let rect = stroke.rect else { return false }
             return rect.width >= minStrokeSpan && rect.height >= minStrokeSpan
         case .arrow:
             guard let endpoints = stroke.endpoints else { return false }
             return distance(endpoints.from, endpoints.to) >= minStrokeSpan
+        case .text:
+            // 文字は押した 1 点に置く。中身が空なら何も書き込まない
+            return !stroke.points.isEmpty && !sanitizedText(stroke.text).isEmpty
         case .crop:
             // 切り抜きは描き込みではない（`ImageEdit.crop` として積む）
             return false

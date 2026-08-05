@@ -21,11 +21,23 @@ final class PanelViewModel: ObservableObject {
     /// ⌘E で画像を編集中のアイテム。読み込みが終わるまで `editingImage` は nil のまま
     @Published private(set) var editingImageItem: ClipboardItem?
     @Published private(set) var editingImage: ImageEditSource?
-    @Published var imageTool: ImageTool = .redaction
+    @Published var imageTool: ImageTool = .redaction {
+        didSet {
+            guard oldValue != imageTool else { return }
+            // 入力途中の文字は道具を変えた時点で書き込む。捨てると打ち直しになる
+            commitImageText()
+        }
+    }
+    /// 選んでいる色と太さ。編集画面を閉じても持ち越す（毎回選び直すのは煩わしい）
+    @Published var imageColor: StrokeColor = .marker
+    @Published var imageWeight: StrokeWeight = .regular
     /// 確定済みの操作。末尾から取り消す（⌘Z）
     @Published private(set) var imageEdits: [ImageEdit] = []
     /// ドラッグ中の操作。離すまで `imageEdits` には入れない
     @Published private(set) var imageDraft: ImageEdit?
+    /// 文字を書き込む位置（画像座標）。nil なら入力していない
+    @Published private(set) var imageTextAnchor: CGPoint?
+    @Published var imageText = ""
     @Published private(set) var imageEditError: String?
 
     private var editingOriginalText = ""
@@ -36,6 +48,8 @@ final class PanelViewModel: ObservableObject {
     /// 何らかの編集画面を開いているか。パネルのキー操作の分岐に使う
     var isEditing: Bool { editingItem != nil || editingImageItem != nil }
     var isImageEditing: Bool { editingImageItem != nil }
+    /// 文字の入力欄を出しているか。キー入力を入力欄へ通すかの判定に使う
+    var isTypingImageText: Bool { imageTextAnchor != nil }
 
     let store: HistoryStore
     /// アイテム決定時（Enter / ダブルクリック）の処理。PanelController が設定する
@@ -202,6 +216,12 @@ final class PanelViewModel: ObservableObject {
     func updateImageDraft(at point: CGPoint) {
         guard let source = editingImage else { return }
 
+        // 文字は押した位置に入力欄を出すだけで、ドラッグでは形を作らない
+        guard imageTool != .text else {
+            imageDraftPoints = [point]
+            return
+        }
+
         if imageDraftPoints.isEmpty {
             imageDraftPoints = [point]
         } else if imageTool.usesAllPoints {
@@ -210,7 +230,7 @@ final class PanelViewModel: ObservableObject {
             // 形が始点と終点で決まる道具は、途中の点を捨てて 2 点だけ保つ
             imageDraftPoints = [imageDraftPoints[0], point]
         }
-        imageDraft = makeImageDraft(lineWidth: source.lineWidth)
+        imageDraft = makeImageDraft(lineWidth: lineWidth(for: imageTool, imageSize: source.size))
     }
 
     /// ドラッグを離したときに呼ぶ。誤クリック相当の操作はここで捨てる
@@ -219,8 +239,19 @@ final class PanelViewModel: ObservableObject {
             imageDraftPoints = []
             imageDraft = nil
         }
-        guard let draft = imageDraft, let source = editingImage else { return }
+        guard let source = editingImage else { return }
 
+        // 文字だけは離した時点では確定しない。押した位置に入力欄を出し、
+        // 打ち終わってから（↩）書き込みになる
+        if imageTool == .text {
+            guard let point = imageDraftPoints.last else { return }
+            // 入力欄を出したまま別の場所を押したときは、前の入力を先に書き込む
+            commitImageText()
+            imageTextAnchor = point
+            return
+        }
+
+        guard let draft = imageDraft else { return }
         switch draft {
         case .crop(let rect):
             let current = ImageEditRules.cropRect(in: imageEdits, imageSize: source.size)
@@ -232,6 +263,30 @@ final class PanelViewModel: ObservableObject {
         }
     }
 
+    /// 入力中の文字を書き込みとして確定する。空なら何も残さない。
+    /// どの経路を通っても、呼んだあとは入力欄が閉じて空になる
+    func commitImageText() {
+        guard let anchor = imageTextAnchor, let source = editingImage else {
+            cancelImageText()
+            return
+        }
+        let stroke = ImageStroke(
+            tool: .text,
+            points: [anchor],
+            lineWidth: lineWidth(for: .text, imageSize: source.size),
+            color: imageColor,
+            text: ImageEditRules.sanitizedText(imageText)
+        )
+        cancelImageText()
+        guard ImageEditRules.isDrawable(stroke) else { return }
+        imageEdits.append(.stroke(stroke))
+    }
+
+    func cancelImageText() {
+        imageTextAnchor = nil
+        imageText = ""
+    }
+
     func undoImageEdit() {
         guard !imageEdits.isEmpty else { return }
         imageEdits.removeLast()
@@ -240,6 +295,8 @@ final class PanelViewModel: ObservableObject {
 
     func commitImageEditing() {
         guard let item = editingImageItem else { return }
+        // 入力欄に残ったままの文字も書き込んでから保存する
+        commitImageText()
         guard let source = editingImage, ImageEditRules.shouldSave(imageEdits) else {
             endEditing()
             return
@@ -275,8 +332,17 @@ final class PanelViewModel: ObservableObject {
         return .stroke(ImageStroke(
             tool: imageTool,
             points: imageDraftPoints,
-            lineWidth: lineWidth
+            lineWidth: lineWidth,
+            color: imageColor
         ))
+    }
+
+    /// 描き込みの寸法。太さを選べない道具は、選択に関わらず標準の太さで描く
+    private func lineWidth(for tool: ImageTool, imageSize: CGSize) -> CGFloat {
+        ImageEditRules.lineWidth(
+            forImageSize: imageSize,
+            weight: tool.usesStyle ? imageWeight : .regular
+        )
     }
 
     // MARK: - 編集の終了
@@ -293,6 +359,8 @@ final class PanelViewModel: ObservableObject {
         imageEdits = []
         imageDraft = nil
         imageDraftPoints = []
+        imageTextAnchor = nil
+        imageText = ""
         imageEditError = nil
         // 読み込み中だった場合、あとから届く結果を捨てさせる
         imageLoadToken = UUID()

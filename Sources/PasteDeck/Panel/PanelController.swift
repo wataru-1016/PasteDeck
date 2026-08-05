@@ -234,6 +234,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         _ event: NSEvent,
         modifiers: NSEvent.ModifierFlags
     ) -> NSEvent? {
+        if viewModel.isTypingImageText {
+            return handleImageTextKey(event, modifiers: modifiers)
+        }
+
         switch event.keyCode {
         case 53:  // esc
             viewModel.cancelEditing()
@@ -255,9 +259,32 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// 1〜4 で道具を切り替える。並びは編集画面のツールバーと同じ
+    /// 文字を書き込んでいる間のキー操作。
+    /// 打った文字が入力欄へ届くよう、確定（↩）と取り消し（esc）以外はすべて通す
+    private func handleImageTextKey(
+        _ event: NSEvent,
+        modifiers: NSEvent.ModifierFlags
+    ) -> NSEvent? {
+        switch event.keyCode {
+        case 53:  // esc
+            viewModel.cancelImageText()
+            return nil
+        case 36, 76:  // return / keypad enter
+            viewModel.commitImageText()
+            // ⌘↩ は編集全体の保存でもある。文字を確定してからそのまま保存する
+            if modifiers.contains(.command) {
+                viewModel.commitImageEditing()
+            }
+            return nil
+        default:
+            return event
+        }
+    }
+
+    /// 1〜6 で道具を切り替える。並びは編集画面のツールバーと同じ。
+    /// 5 と 6 はキーコードの並びが入れ替わっている点に注意
     private static func tool(forKeyCode keyCode: UInt16) -> ImageTool? {
-        let numberKeyCodes: [UInt16] = [18, 19, 20, 21]  // 1 / 2 / 3 / 4
+        let numberKeyCodes: [UInt16] = [18, 19, 20, 21, 23, 22]  // 1 / 2 / 3 / 4 / 5 / 6
         guard let index = numberKeyCodes.firstIndex(of: keyCode),
               index < ImageTool.allCases.count
         else { return nil }

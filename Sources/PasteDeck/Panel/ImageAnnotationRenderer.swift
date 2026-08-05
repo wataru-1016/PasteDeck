@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import PasteCore
 
 /// 描き込みとトリミングを元画像へ適用して PNG を作る。
@@ -30,35 +31,38 @@ enum ImageAnnotationRenderer {
     private static func draw(_ strokes: [ImageStroke], on image: CGImage) -> CGImage? {
         guard !strokes.isEmpty else { return image }
 
-        let width = image.width
-        let height = image.height
-        guard let context = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
+        let size = CGSize(width: image.width, height: image.height)
+        guard let context = ImageBitmap.context(width: image.width, height: image.height) else {
+            return nil
+        }
+        context.draw(image, in: CGRect(origin: .zero, size: size))
 
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        // モザイクは元画像から一度だけ作る。範囲ごとに作り直すとマス目の割り位置がずれ、
+        // 塗り重ねたところに継ぎ目が出る
+        let mosaic = strokes.contains { $0.tool == .mosaic }
+            ? ImageBitmap.pixelated(image, block: ImageEditRules.mosaicBlockSize(forImageSize: size))
+            : nil
 
         // ここから先は画像座標（左上原点）で描く。CGContext の既定は左下原点なので上下を反転する。
         // 元画像を先に描いてから反転するのは、反転後に描くと画像自体が裏返るため
-        context.translateBy(x: 0, y: CGFloat(height))
+        context.translateBy(x: 0, y: size.height)
         context.scaleBy(x: 1, y: -1)
         context.setLineCap(.round)
         context.setLineJoin(.round)
 
         for stroke in strokes {
-            apply(stroke, in: context)
+            apply(stroke, in: context, mosaic: mosaic, imageSize: size)
         }
         return context.makeImage()
     }
 
-    private static func apply(_ stroke: ImageStroke, in context: CGContext) {
-        let color = stroke.tool.color.cgColor
+    private static func apply(
+        _ stroke: ImageStroke,
+        in context: CGContext,
+        mosaic: CGImage?,
+        imageSize: CGSize
+    ) {
+        let color = stroke.color.cgColor
         context.setStrokeColor(color)
         context.setFillColor(color)
         context.setLineWidth(stroke.lineWidth)
@@ -70,6 +74,10 @@ enum ImageAnnotationRenderer {
         case .redaction:
             guard let rect = stroke.rect else { return }
             context.fill(rect)
+
+        case .mosaic:
+            guard let rect = stroke.rect, let mosaic else { return }
+            drawMosaic(mosaic, in: rect, context: context, imageSize: imageSize)
 
         case .arrow:
             guard let endpoints = stroke.endpoints,
@@ -87,6 +95,10 @@ enum ImageAnnotationRenderer {
             context.addLine(to: geometry.right)
             context.closePath()
             context.fillPath()
+
+        case .text:
+            guard let anchor = stroke.points.first else { return }
+            drawText(stroke, at: anchor, in: context)
 
         case .crop:
             // 切り抜きは描き込みではない（`ImageEditRules.strokes(in:)` が除いている）
@@ -109,6 +121,49 @@ enum ImageAnnotationRenderer {
         }
         context.addLines(between: stroke.points)
         context.strokePath()
+    }
+
+    /// 粗くした画像を、指定の範囲だけ元の位置に重ねる。
+    ///
+    /// 切り抜きは反転したままの座標系で指定してよい（clip はその時点の座標系で確定する）が、
+    /// 画像は反転を戻してから描く。戻さずに `draw` すると絵が上下逆に貼り付く
+    private static func drawMosaic(
+        _ mosaic: CGImage,
+        in rect: CGRect,
+        context: CGContext,
+        imageSize: CGSize
+    ) {
+        context.saveGState()
+        context.clip(to: rect)
+        context.translateBy(x: 0, y: imageSize.height)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(mosaic, in: CGRect(origin: .zero, size: imageSize))
+        context.restoreGState()
+    }
+
+    /// 文字も反転したままでは裏返るため、置く位置で座標系を起こし直す。
+    /// 起点は文字の左上で、ベースラインはそこから ascent ぶん下になる
+    private static func drawText(_ stroke: ImageStroke, at anchor: CGPoint, in context: CGContext) {
+        let text = ImageEditRules.sanitizedText(stroke.text)
+        guard !text.isEmpty else { return }
+
+        let attributed = NSAttributedString(
+            string: text,
+            attributes: ImageTextStyle.coreTextAttributes(
+                size: ImageEditRules.fontSize(forLineWidth: stroke.lineWidth),
+                color: stroke.color
+            )
+        )
+        let line = CTLineCreateWithAttributedString(attributed)
+        var ascent: CGFloat = 0
+        _ = CTLineGetTypographicBounds(line, &ascent, nil, nil)
+
+        context.saveGState()
+        context.translateBy(x: anchor.x, y: anchor.y + ascent)
+        context.scaleBy(x: 1, y: -1)
+        context.textPosition = .zero
+        CTLineDraw(line, context)
+        context.restoreGState()
     }
 
     // MARK: - 切り抜きと書き出し

@@ -71,16 +71,24 @@ final class FileThumbnailProvider {
 /// フル解像度で NSImage 展開すると表示に対して過大なメモリを食うため、ImageIO で間引く
 enum ImageDownsampler {
     static func image(from data: Data, maxPixelSize: Int) -> NSImage? {
+        cgImage(from: data, maxPixelSize: maxPixelSize).map(nsImage)
+    }
+
+    /// 画像編集はこちらを使う。加工（モザイク）に CGImage が要るため、NSImage へ包む前で受け取る
+    static func cgImage(from data: Data, maxPixelSize: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return nil
-        }
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// ピクセル数をそのまま大きさにして包む。
+    /// 縮小済みの画像に解像度の情報を持たせると、表示のたびに二重で縮む
+    static func nsImage(_ cgImage: CGImage) -> NSImage {
+        NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }
 
