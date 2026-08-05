@@ -8,7 +8,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let store: HistoryStore
     private let monitor: ClipboardMonitor
     private let panelController: PanelController
+    private let shortcutSettings: ShortcutSettingsController
 
+    private let showItem = NSMenuItem(title: "履歴を表示", action: #selector(showPanel), keyEquivalent: "")
     private let pauseItem = NSMenuItem(
         title: "監視を一時停止",
         action: #selector(togglePause),
@@ -29,11 +31,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private var maxItemsMenuItems: [NSMenuItem] = []
     private var maxAgeMenuItems: [NSMenuItem] = []
 
-    init(store: HistoryStore, monitor: ClipboardMonitor, panelController: PanelController) {
+    init(
+        store: HistoryStore,
+        monitor: ClipboardMonitor,
+        panelController: PanelController,
+        shortcutSettings: ShortcutSettingsController
+    ) {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.store = store
         self.monitor = monitor
         self.panelController = panelController
+        self.shortcutSettings = shortcutSettings
         super.init()
 
         statusItem.button?.image = NSImage(
@@ -47,10 +55,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
 
-        let showItem = NSMenuItem(title: "履歴を表示", action: #selector(showPanel), keyEquivalent: "v")
-        showItem.keyEquivalentModifierMask = [.command, .shift]
         showItem.target = self
         menu.addItem(showItem)
+
+        let shortcutItem = NSMenuItem(
+            title: "ショートカットを変更…",
+            action: #selector(openShortcutSettings),
+            keyEquivalent: ""
+        )
+        shortcutItem.target = self
+        menu.addItem(shortcutItem)
 
         menu.addItem(.separator())
 
@@ -120,6 +134,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        updateShowItemShortcut()
         pauseItem.state = monitor.isPaused ? .on : .off
         loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
 
@@ -130,6 +145,28 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         for item in maxAgeMenuItems {
             item.state = Int(policy.maxAge ?? 0) == item.tag ? .on : .off
         }
+    }
+
+    /// 「履歴を表示」に現在のショートカットを添える。
+    /// `NSMenuItem` は特殊キーごとに固有の文字を求めるため、表せない組み合わせのときは
+    /// 何も出さない（実際の発火は Carbon 側が担うため、表示だけの問題に留まる）
+    private func updateShowItemShortcut() {
+        let shortcut = shortcutSettings.shortcut
+        showItem.keyEquivalent = shortcut.menuKeyEquivalent ?? ""
+        showItem.keyEquivalentModifierMask = Self.menuModifierMask(shortcut.modifiers)
+    }
+
+    private static func menuModifierMask(_ modifiers: HotkeyShortcut.Modifiers) -> NSEvent.ModifierFlags {
+        var mask: NSEvent.ModifierFlags = []
+        if modifiers.contains(.command) { mask.insert(.command) }
+        if modifiers.contains(.shift) { mask.insert(.shift) }
+        if modifiers.contains(.option) { mask.insert(.option) }
+        if modifiers.contains(.control) { mask.insert(.control) }
+        return mask
+    }
+
+    @objc private func openShortcutSettings() {
+        shortcutSettings.show()
     }
 
     @objc private func selectMaxItems(_ sender: NSMenuItem) {

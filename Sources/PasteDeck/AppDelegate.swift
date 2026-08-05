@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var monitor: ClipboardMonitor!
     private var pasteService: PasteService!
     private var hotkeyManager: HotkeyManager!
+    private var shortcutSettings: ShortcutSettingsController!
     private var statusBarController: StatusBarController!
     private var panelController: PanelController!
     private var activityToken: NSObjectProtocol?
@@ -34,15 +35,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.pasteService.paste(item, plainTextOnly: plainTextOnly)
         }
 
-        hotkeyManager = HotkeyManager { [weak self] in
+        hotkeyManager = HotkeyManager(shortcut: HotkeyPreferences.load()) { [weak self] in
             self?.panelController.toggle()
         }
-        hotkeyManager.register()
+        // 登録できなくてもメニューからは開けるため、起動自体は続ける
+        do {
+            try hotkeyManager.start()
+        } catch {
+            Log.error("ショートカットを登録できませんでした: \(error)")
+        }
+        shortcutSettings = ShortcutSettingsController(hotkeyManager: hotkeyManager)
 
         statusBarController = StatusBarController(
             store: store,
             monitor: monitor,
-            panelController: panelController
+            panelController: panelController,
+            shortcutSettings: shortcutSettings
         )
 
         // App Nap によるポーリング停止を防ぐ（システムのスリープは妨げない）
