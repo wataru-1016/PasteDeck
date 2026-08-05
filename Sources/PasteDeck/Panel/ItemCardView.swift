@@ -309,10 +309,15 @@ private struct ImageThumbnailView: View {
                 }
             }
             .clipped()
-            .onAppear {
-                ThumbnailProvider.shared.thumbnail(for: item, persistence: persistence) { image in
-                    thumbnail = image
-                }
-            }
+            .onAppear { loadThumbnail() }
+            // ⌘E で描き込んだあとも同じカードが使い回されて onAppear が再発火しないため、
+            // 内容の変化（ハッシュ）を見て読み直す
+            .onChange(of: item.contentHash) { loadThumbnail() }
+    }
+
+    private func loadThumbnail() {
+        ThumbnailProvider.shared.thumbnail(for: item, persistence: persistence) { image in
+            thumbnail = image
+        }
     }
 }

@@ -48,6 +48,8 @@ struct PanelView: View {
     private var editorOverlay: some View {
         if viewModel.editingItem != nil {
             TextEditorOverlay(viewModel: viewModel)
+        } else if viewModel.isImageEditing {
+            ImageEditorOverlay(viewModel: viewModel)
         }
     }
 

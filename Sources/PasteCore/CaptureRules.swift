@@ -5,7 +5,9 @@ import Foundation
 public enum CaptureRules {
     public static let plainTextType = "public.utf8-plain-text"
     public static let storedTextTypes = ["public.utf8-plain-text", "public.rtf", "public.html"]
-    public static let imageTypes = ["public.png", "public.tiff"]
+    /// 画像の保存形式。取り込み時に TIFF もこれへ変換して 1 本化する
+    public static let pngType = "public.png"
+    public static let imageTypes = [pngType, "public.tiff"]
 
     /// パスワードマネージャー等が付与する「履歴に残すべきでない」マーカー
     public static let skipMarkerTypes: Set<String> = [

@@ -186,6 +186,52 @@ public final class HistoryStore: ObservableObject {
         persistIndex()
     }
 
+    /// アイテムの画像を差し替える（⌘E での編集）。
+    ///
+    /// `replaceText` と同じく、派生値（preview・バイト数・ハッシュ）を引き直し、
+    /// ID・ピン状態・並び順・コピー元アプリ・コピー時刻は保持する。
+    /// 画像以外の flavor は破棄する（理由は `ImageEditRules.flavors(forEditedPNG:)`）
+    public func replaceImage(
+        _ png: Data,
+        pixelWidth: Int,
+        pixelHeight: Int,
+        for id: UUID
+    ) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let original = items[index]
+        guard ImageEditRules.canEdit(kind: original.kind, byteSize: original.byteSize) else { return }
+        guard ImageEditRules.canStore(byteCount: png.count) else {
+            Log.error("編集後の画像が大きすぎるため保存しませんでした: \(png.count) バイト")
+            return
+        }
+
+        let flavors = ImageEditRules.flavors(forEditedPNG: png)
+        do {
+            try persistence.saveFlavors(flavors, id: id)
+        } catch {
+            Log.error("編集した画像の保存に失敗しました: \(error)")
+            return
+        }
+
+        let sizeLabel = ImageEditRules.sizeLabel(pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        var updated = items
+        updated[index] = ClipboardItem(
+            id: original.id,
+            kind: .image,
+            preview: Self.imagePreview(sizeLabel: sizeLabel),
+            charCount: nil,
+            fileURLs: nil,
+            sourceAppName: original.sourceAppName,
+            sourceAppBundleID: original.sourceAppBundleID,
+            createdAt: original.createdAt,
+            isPinned: original.isPinned,
+            byteSize: png.count,
+            contentHash: CaptureRules.contentHash(flavors: flavors, fileURLs: [])
+        )
+        items = updated
+        persistIndex()
+    }
+
     // MARK: - 内部処理
 
     private func persistIndex() {
@@ -219,12 +265,17 @@ public final class HistoryStore: ObservableObject {
         return result
     }
 
+    /// 画像カードの見出し。取り込み時と ⌘E の編集後で同じ文言にする
+    private static func imagePreview(sizeLabel: String?) -> String {
+        sizeLabel.map { "画像 \($0)" } ?? "画像"
+    }
+
     private static func preview(for kind: ItemKind, text: String?, content: CapturedContent) -> String {
         switch kind {
         case .text, .link:
             return CaptureRules.makePreview(text ?? "")
         case .image:
-            return content.imageSizeLabel.map { "画像 \($0)" } ?? "画像"
+            return imagePreview(sizeLabel: content.imageSizeLabel)
         case .fileList:
             return content.fileURLs
                 .compactMap { URL(string: $0)?.lastPathComponent }

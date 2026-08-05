@@ -67,9 +67,24 @@ final class FileThumbnailProvider {
     }
 }
 
-/// 画像アイテムのサムネイル読み込み（ディスクから非同期・縮小してキャッシュ）。
-/// フル解像度で NSImage 展開するとカード表示に対して過大なメモリを食うため、
-/// ImageIO で表示サイズ相当までダウンサンプリングする
+/// 画像データを表示サイズ相当まで縮小して読み込む。
+/// フル解像度で NSImage 展開すると表示に対して過大なメモリを食うため、ImageIO で間引く
+enum ImageDownsampler {
+    static func image(from data: Data, maxPixelSize: Int) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+}
+
+/// 画像アイテムのサムネイル読み込み（ディスクから非同期・縮小してキャッシュ）
 final class ThumbnailProvider {
     private static let maxPixelSize = 640
 
@@ -79,6 +94,12 @@ final class ThumbnailProvider {
 
     init() {
         cache.countLimit = 100
+    }
+
+    /// アイテムの内容が変わったときにキャッシュを捨てる。
+    /// ⌘E で描き込んでも、捨てないと編集前のサムネイルが残ってしまう
+    func invalidate(id: UUID) {
+        cache.removeObject(forKey: id.uuidString as NSString)
     }
 
     func thumbnail(
@@ -94,8 +115,10 @@ final class ThumbnailProvider {
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let flavors = persistence.loadFlavors(id: item.id)
-            let data = flavors?["public.png"] ?? flavors?["public.tiff"]
-            let image = data.flatMap { Self.downsampledImage(from: $0) }
+            let data = flavors?[CaptureRules.pngType] ?? flavors?["public.tiff"]
+            let image = data.flatMap {
+                ImageDownsampler.image(from: $0, maxPixelSize: Self.maxPixelSize)
+            }
             DispatchQueue.main.async {
                 if let image {
                     self?.cache.setObject(image, forKey: key)
@@ -103,18 +126,5 @@ final class ThumbnailProvider {
                 completion(image)
             }
         }
-    }
-
-    private static func downsampledImage(from data: Data) -> NSImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-        ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            return nil
-        }
-        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }

@@ -12,8 +12,11 @@ private final class KeyablePanel: NSPanel {
 /// .nonactivatingPanel を使い、前面アプリをアクティブなまま保つのが貼り付けの要。
 final class PanelController: NSObject, NSWindowDelegate {
     private static let panelHeight: CGFloat = 340
+    /// 画像編集中の高さ。340pt のままではキャンバスが小さすぎて塗る場所を狙えない
+    private static let editingPanelHeight: CGFloat = 720
     private static let showDuration: TimeInterval = 0.22
     private static let hideDuration: TimeInterval = 0.16
+    private static let resizeDuration: TimeInterval = 0.18
     /// 畳んだときの窓の高さ。0 は AppKit が最小サイズへ丸めることがあるため 1 にする
     private static let collapsedHeight: CGFloat = 1
     /// キー判定で意味を持つ修飾キー。`.deviceIndependentFlagsMask` には capsLock や
@@ -27,6 +30,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var keyMonitor: Any?
     private(set) var isShown = false
     private var isAnimatingOut = false
+    /// いま中身に与えている高さ。画像編集の間だけ `editingPanelHeight` になる
+    private var contentHeight = PanelController.panelHeight
 
     /// 貼り付け実行時の処理。AppDelegate が設定する
     var onPaste: ((ClipboardItem, _ plainTextOnly: Bool) -> Void)?
@@ -65,6 +70,9 @@ final class PanelController: NSObject, NSWindowDelegate {
             guard let self, self.isShown else { return }
             self.hide { self.onPaste?(item, plainTextOnly) }
         }
+        viewModel.onImageEditingChange = { [weak self] isEditing in
+            self?.setExpanded(isEditing)
+        }
         installKeyMonitor()
     }
 
@@ -97,6 +105,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         var startFrame = endFrame
         startFrame.size.height = Self.collapsedHeight
 
+        contentHeight = Self.panelHeight
         viewModel.panelWillShow()
         panel.setFrame(startFrame, display: false)
         pinContentToTop()
@@ -154,7 +163,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
         let modifiers = event.modifierFlags.intersection(Self.significantModifiers)
 
-        if viewModel.editingItem != nil {
+        if viewModel.isEditing {
             return handleEditingKey(event, modifiers: modifiers)
         }
 
@@ -199,6 +208,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         _ event: NSEvent,
         modifiers: NSEvent.ModifierFlags
     ) -> NSEvent? {
+        if viewModel.isImageEditing {
+            return handleImageEditingKey(event, modifiers: modifiers)
+        }
+
         switch event.keyCode {
         case 53:  // esc
             viewModel.cancelEditing()
@@ -212,6 +225,45 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// 画像編集中のキー操作。
+    ///
+    /// 文字入力を使わないため、⌘ を伴わないキーはここですべて消費する。通してしまうと
+    /// 編集画面の裏で検索が絞り込まれ、閉じたときに履歴の並びが変わってしまう。
+    /// ⌘Z も横取りする（メインメニューの「取り消す」はテキスト欄向けのため）
+    private func handleImageEditingKey(
+        _ event: NSEvent,
+        modifiers: NSEvent.ModifierFlags
+    ) -> NSEvent? {
+        switch event.keyCode {
+        case 53:  // esc
+            viewModel.cancelEditing()
+            return nil
+        case 36, 76:  // return / keypad enter
+            guard modifiers.contains(.command) else { return nil }
+            viewModel.commitImageEditing()
+            return nil
+        case 6 where modifiers == .command:  // ⌘Z
+            viewModel.undoImageEdit()
+            return nil
+        default:
+            if modifiers.isEmpty, let tool = Self.tool(forKeyCode: event.keyCode) {
+                viewModel.imageTool = tool
+                return nil
+            }
+            // ⌘Q などアプリ全体のキー等価はメインメニューへ通す
+            return modifiers.contains(.command) ? event : nil
+        }
+    }
+
+    /// 1〜4 で道具を切り替える。並びは編集画面のツールバーと同じ
+    private static func tool(forKeyCode keyCode: UInt16) -> ImageTool? {
+        let numberKeyCodes: [UInt16] = [18, 19, 20, 21]  // 1 / 2 / 3 / 4
+        guard let index = numberKeyCodes.firstIndex(of: keyCode),
+              index < ImageTool.allCases.count
+        else { return nil }
+        return ImageTool.allCases[index]
+    }
+
     // MARK: - 内部処理
 
     /// 中身を窓の上端に張り付ける。窓の高さが collapsedHeight のときは中身のほぼ全体が
@@ -221,10 +273,38 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard let container = panel.contentView else { return }
         hostingView.frame = NSRect(
             x: 0,
-            y: container.bounds.height - Self.panelHeight,
+            y: container.bounds.height - contentHeight,
             width: container.bounds.width,
-            height: Self.panelHeight
+            height: contentHeight
         )
+    }
+
+    /// 画像編集の間だけパネルを高くする。
+    ///
+    /// 高さが変わる間は中身を窓へ張り付ける（`.height`）。上端固定（`.minYMargin`）の
+    /// ままだと、伸びた分がそのまま中身の下の空白として残ってしまう
+    private func setExpanded(_ expanded: Bool) {
+        guard isShown, !isAnimatingOut else { return }
+        guard let screen = panel.screen ?? screenWithMouse() else { return }
+
+        let height = expanded
+            ? min(Self.editingPanelHeight, screen.visibleFrame.height)
+            : Self.panelHeight
+        guard height != contentHeight else { return }
+        contentHeight = height
+
+        hostingView.autoresizingMask = [.width, .height]
+        if let container = panel.contentView {
+            hostingView.frame = container.bounds
+        }
+
+        var frame = panel.frame
+        frame.size.height = height
+        animate(to: frame, duration: Self.resizeDuration) { [weak self] in
+            guard let self else { return }
+            self.hostingView.autoresizingMask = [.width, .minYMargin]
+            self.pinContentToTop()
+        }
     }
 
     private func animate(to frame: NSRect, duration: TimeInterval, completion: (() -> Void)? = nil) {

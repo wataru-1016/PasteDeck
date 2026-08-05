@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import PasteCore
@@ -11,17 +12,36 @@ final class PanelViewModel: ObservableObject {
     /// インクリメントすると検索フィールドへフォーカスが移る
     @Published var focusToken = 0
 
-    /// ⌘E で編集中のアイテム。nil なら編集していない
+    /// ⌘E でテキストを編集中のアイテム。nil なら編集していない
     @Published private(set) var editingItem: ClipboardItem?
     @Published var editingText = ""
     /// 保存すると装飾が破棄されるか。編集画面での事前警告に使う
     @Published private(set) var editingDiscardsDecoration = false
 
+    /// ⌘E で画像を編集中のアイテム。読み込みが終わるまで `editingImage` は nil のまま
+    @Published private(set) var editingImageItem: ClipboardItem?
+    @Published private(set) var editingImage: ImageEditSource?
+    @Published var imageTool: ImageTool = .redaction
+    /// 確定済みの操作。末尾から取り消す（⌘Z）
+    @Published private(set) var imageEdits: [ImageEdit] = []
+    /// ドラッグ中の操作。離すまで `imageEdits` には入れない
+    @Published private(set) var imageDraft: ImageEdit?
+    @Published private(set) var imageEditError: String?
+
     private var editingOriginalText = ""
+    private var imageDraftPoints: [CGPoint] = []
+    /// 読み込み中に取り消されたかどうかの判定に使う
+    private var imageLoadToken = UUID()
+
+    /// 何らかの編集画面を開いているか。パネルのキー操作の分岐に使う
+    var isEditing: Bool { editingItem != nil || editingImageItem != nil }
+    var isImageEditing: Bool { editingImageItem != nil }
 
     let store: HistoryStore
     /// アイテム決定時（Enter / ダブルクリック）の処理。PanelController が設定する
     var onActivate: ((ClipboardItem, _ plainTextOnly: Bool) -> Void)?
+    /// 画像編集の開始・終了。キャンバスを確保するためパネルを広げる
+    var onImageEditingChange: ((Bool) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -44,6 +64,9 @@ final class PanelViewModel: ObservableObject {
     }
 
     func panelWillShow() {
+        // 編集中にパネルが閉じた（他アプリをクリックした）場合、その編集は破棄した扱いにする。
+        // 残したままだと、次に開いたときに前回の編集画面が載ったままになる
+        if isEditing { endEditing() }
         query = ""
         pinnedOnly = false
         selectedID = visible.first?.id
@@ -101,14 +124,27 @@ final class PanelViewModel: ObservableObject {
         togglePin(item)
     }
 
-    // MARK: - テキスト編集（⌘E）
+    // MARK: - 編集（⌘E）
 
-    /// 選択中アイテムの編集を開始する。
-    /// 編集対象は `preview`（先頭 400 文字）ではなく flavor に入っている全文
+    /// 選択中アイテムの編集を開始する。開く画面は種別で決まる
     func beginEditingSelected() {
-        guard let item = selectedItem,
-              TextEditRules.canEdit(kind: item.kind, byteSize: item.byteSize)
-        else { return }
+        guard let item = selectedItem else { return }
+        switch item.kind {
+        case .text, .link:
+            beginTextEditing(item)
+        case .image:
+            beginImageEditing(item)
+        case .fileList:
+            // ファイルは実体がディスク上にあり、履歴側で書き換えるものではない
+            break
+        }
+    }
+
+    // MARK: - テキスト編集
+
+    /// 編集対象は `preview`（先頭 400 文字）ではなく flavor に入っている全文
+    private func beginTextEditing(_ item: ClipboardItem) {
+        guard TextEditRules.canEdit(kind: item.kind, byteSize: item.byteSize) else { return }
 
         let flavors = store.flavors(for: item.id) ?? [:]
         guard let data = flavors[CaptureRules.plainTextType],
@@ -135,11 +171,133 @@ final class PanelViewModel: ObservableObject {
         endEditing()
     }
 
+    // MARK: - 画像編集
+
+    private func beginImageEditing(_ item: ClipboardItem) {
+        guard ImageEditRules.canEdit(kind: item.kind, byteSize: item.byteSize) else { return }
+
+        let token = UUID()
+        imageLoadToken = token
+        editingImageItem = item
+        onImageEditingChange?(true)
+
+        // 数 MB の PNG を展開する間パネルが固まらないよう、読み込みだけ別スレッドで行う
+        let persistence = store.persistence
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let source = persistence.loadFlavors(id: item.id)
+                .flatMap { ImageEditLoader.load(flavors: $0) }
+            DispatchQueue.main.async {
+                // 読み込んでいる間に esc で閉じられていたら結果を捨てる
+                guard let self, self.imageLoadToken == token else { return }
+                guard let source else {
+                    self.imageEditError = "この画像は編集できません"
+                    return
+                }
+                self.editingImage = source
+            }
+        }
+    }
+
+    /// ドラッグ中の操作を更新する。`point` は画像のピクセル座標
+    func updateImageDraft(at point: CGPoint) {
+        guard let source = editingImage else { return }
+
+        if imageDraftPoints.isEmpty {
+            imageDraftPoints = [point]
+        } else if imageTool.usesAllPoints {
+            imageDraftPoints.append(point)
+        } else {
+            // 形が始点と終点で決まる道具は、途中の点を捨てて 2 点だけ保つ
+            imageDraftPoints = [imageDraftPoints[0], point]
+        }
+        imageDraft = makeImageDraft(lineWidth: source.lineWidth)
+    }
+
+    /// ドラッグを離したときに呼ぶ。誤クリック相当の操作はここで捨てる
+    func commitImageDraft() {
+        defer {
+            imageDraftPoints = []
+            imageDraft = nil
+        }
+        guard let draft = imageDraft, let source = editingImage else { return }
+
+        switch draft {
+        case .crop(let rect):
+            let current = ImageEditRules.cropRect(in: imageEdits, imageSize: source.size)
+            guard ImageEditRules.isValidCrop(rect, in: current) else { return }
+            imageEdits.append(.crop(rect.intersection(current)))
+        case .stroke(let stroke):
+            guard ImageEditRules.isDrawable(stroke) else { return }
+            imageEdits.append(.stroke(stroke))
+        }
+    }
+
+    func undoImageEdit() {
+        guard !imageEdits.isEmpty else { return }
+        imageEdits.removeLast()
+        imageEditError = nil
+    }
+
+    func commitImageEditing() {
+        guard let item = editingImageItem else { return }
+        guard let source = editingImage, ImageEditRules.shouldSave(imageEdits) else {
+            endEditing()
+            return
+        }
+
+        // フル解像度への描き込みはここで一度だけ行う。保存を押した直後の一瞬なので同期で処理する
+        guard let output = ImageAnnotationRenderer.render(source: source, edits: imageEdits) else {
+            imageEditError = "画像を書き出せませんでした"
+            return
+        }
+        guard ImageEditRules.canStore(byteCount: output.png.count) else {
+            imageEditError = "編集後の画像が大きすぎるため保存できません"
+            return
+        }
+
+        store.replaceImage(
+            output.png,
+            pixelWidth: output.pixelWidth,
+            pixelHeight: output.pixelHeight,
+            for: item.id
+        )
+        // 描き込みを反映するためカードのサムネイルを読み直させる
+        ThumbnailProvider.shared.invalidate(id: item.id)
+        endEditing()
+    }
+
+    private func makeImageDraft(lineWidth: CGFloat) -> ImageEdit? {
+        guard let first = imageDraftPoints.first, let last = imageDraftPoints.last else { return nil }
+        guard imageTool != .crop else {
+            guard imageDraftPoints.count >= 2 else { return nil }
+            return .crop(ImageEditRules.rect(from: first, to: last))
+        }
+        return .stroke(ImageStroke(
+            tool: imageTool,
+            points: imageDraftPoints,
+            lineWidth: lineWidth
+        ))
+    }
+
+    // MARK: - 編集の終了
+
     private func endEditing() {
+        let wasImageEditing = isImageEditing
         editingItem = nil
         editingText = ""
         editingOriginalText = ""
         editingDiscardsDecoration = false
+
+        editingImageItem = nil
+        editingImage = nil
+        imageEdits = []
+        imageDraft = nil
+        imageDraftPoints = []
+        imageEditError = nil
+        // 読み込み中だった場合、あとから届く結果を捨てさせる
+        imageLoadToken = UUID()
+        if wasImageEditing { onImageEditingChange?(false) }
+
         // 編集欄を閉じたあとは検索欄へフォーカスを戻す
         focusToken += 1
     }
