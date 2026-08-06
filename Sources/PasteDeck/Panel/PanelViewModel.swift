@@ -311,10 +311,13 @@ final class PanelViewModel: ObservableObject {
         imageEditError = nil
     }
 
-    func commitImageEditing() {
+    /// - Parameter mode: 上書き（元のアイテムを書き換える）か、新規（元を残して増やす）か
+    func commitImageEditing(mode: ImageSaveMode = .overwrite) {
         guard let item = editingImageItem else { return }
         // 入力欄に残ったままの文字も書き込んでから保存する
         commitImageText()
+        // 何も描いていなければ、どちらの保存でも履歴に触れずに閉じる。
+        // 新規で増やしても元と同じ画像が並ぶだけで、探すときの邪魔にしかならない
         guard let source = editingImage, ImageEditRules.shouldSave(imageEdits) else {
             endEditing()
             return
@@ -330,14 +333,30 @@ final class PanelViewModel: ObservableObject {
             return
         }
 
-        store.replaceImage(
-            output.png,
-            pixelWidth: output.pixelWidth,
-            pixelHeight: output.pixelHeight,
-            for: item.id
-        )
-        // 描き込みを反映するためカードのサムネイルを読み直させる
-        ThumbnailProvider.shared.invalidate(id: item.id)
+        switch mode {
+        case .overwrite:
+            store.replaceImage(
+                output.png,
+                pixelWidth: output.pixelWidth,
+                pixelHeight: output.pixelHeight,
+                for: item.id
+            )
+            // 同じ ID のまま中身が変わるため、カードのサムネイルを読み直させる
+            ThumbnailProvider.shared.invalidate(id: item.id)
+        case .addNew:
+            // 取り込みと同じ経路に乗せる。重複排除・保持ポリシー・永続化を
+            // 二重に書かずに済み、コピーで増えたアイテムと同じ扱いになる
+            store.ingest(CapturedContent(
+                flavors: ImageEditRules.flavors(forEditedPNG: output.png),
+                sourceAppName: item.sourceAppName,
+                sourceAppBundleID: item.sourceAppBundleID,
+                imageSizeLabel: ImageEditRules.sizeLabel(
+                    pixelWidth: output.pixelWidth,
+                    pixelHeight: output.pixelHeight
+                )
+            ))
+            // 元のカードは変わらないので、サムネイルの作り直しは要らない
+        }
         endEditing()
     }
 

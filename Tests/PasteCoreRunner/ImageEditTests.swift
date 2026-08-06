@@ -546,6 +546,38 @@ func runImageEditTests(_ t: TestHarness) {
         t.expect(result.sourceAppName == "スクリーンショット", "コピー元アプリは保持する")
     }
 
+    t.run("新規保存は元のアイテムを残したまま履歴を増やす") { t in
+        // 新規保存は取り込みと同じ経路（ingest）に乗せている。
+        // 元の画像が消えないこと・別 ID になることがこの保存の存在意義
+        let store = HistoryStore(persistence: try makeTempPersistence())
+        store.ingest(imageContent())
+        let original = try t.require(store.items.first, "取り込まれる")
+
+        let edited = Data(repeating: 0x55, count: 96)
+        store.ingest(CapturedContent(
+            flavors: ImageEditRules.flavors(forEditedPNG: edited),
+            sourceAppName: original.sourceAppName,
+            sourceAppBundleID: original.sourceAppBundleID,
+            imageSizeLabel: ImageEditRules.sizeLabel(pixelWidth: 600, pixelHeight: 400)
+        ))
+
+        t.expect(store.items.count == 2, "件数が 1 つ増える")
+        let added = try t.require(store.items.first, "先頭に入る")
+        t.expect(added.id != original.id, "元とは別のアイテムになる")
+        t.expect(added.preview == "画像 600 × 400", "編集後の大きさが preview に出る")
+        t.expect(added.sourceAppName == original.sourceAppName, "コピー元アプリを引き継ぐ")
+        t.expect(!added.isPinned, "ピン留めは引き継がない")
+
+        let kept = try t.require(store.items.last, "元のアイテムが残る")
+        t.expect(kept.id == original.id, "元の ID はそのまま")
+        t.expect(
+            store.flavors(for: original.id)?[CaptureRules.pngType]
+                == imageContent().flavors[CaptureRules.pngType],
+            "元の画像データは書き換わらない"
+        )
+        t.expect(store.flavors(for: added.id)?[CaptureRules.pngType] == edited, "編集後の画像が残る")
+    }
+
     t.run("編集すると画像データが差し替わり PNG だけが残る") { t in
         let store = HistoryStore(persistence: try makeTempPersistence())
         store.ingest(CapturedContent(

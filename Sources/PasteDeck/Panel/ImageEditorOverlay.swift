@@ -44,6 +44,23 @@ extension ImageTool {
     }
 }
 
+extension ImageSaveMode {
+    var label: String {
+        switch self {
+        case .overwrite: return "上書き保存"
+        case .addNew: return "新規保存"
+        }
+    }
+
+    /// 押す前に取り違えないための補助説明。上書きは元の画像が戻せない
+    var help: String {
+        switch self {
+        case .overwrite: return "元の画像を編集後の画像で置き換えます（⌘↩）"
+        case .addNew: return "元の画像を残したまま、編集後の画像を履歴へ追加します（⇧⌘↩）"
+        }
+    }
+}
+
 extension StrokeWeight {
     /// 文字の大きさはピクセルで指定するため、この選択が出るのは線を引く道具だけ
     var label: String {
@@ -263,9 +280,17 @@ struct ImageEditorOverlay: View {
                 .foregroundStyle(.tertiary)
 
             Button("取り消す") { viewModel.cancelEditing() }
-            Button("保存") { viewModel.commitImageEditing() }
-                .buttonStyle(.borderedProminent)
-                .disabled(viewModel.editingImage == nil)
+            Button(ImageSaveMode.addNew.label) {
+                viewModel.commitImageEditing(mode: .addNew)
+            }
+            .disabled(viewModel.editingImage == nil)
+            .help(ImageSaveMode.addNew.help)
+            Button(ImageSaveMode.overwrite.label) {
+                viewModel.commitImageEditing(mode: .overwrite)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(viewModel.editingImage == nil)
+            .help(ImageSaveMode.overwrite.help)
         }
     }
 
@@ -274,7 +299,7 @@ struct ImageEditorOverlay: View {
         if viewModel.isEditingImageTextSize { return "↩ 大きさを確定" }
         return viewModel.isTypingImageText
             ? "↩ 文字を確定　esc 入力を取り消す"
-            : "1〜6 道具　⌘Z 取り消し　⌘↩ 保存　esc 中止"
+            : "1〜6 道具　⌘Z 取り消し　⌘↩ 上書き保存　⇧⌘↩ 新規保存　esc 中止"
     }
 }
 

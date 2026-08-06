@@ -146,6 +146,16 @@ public struct ImageStroke: Equatable, Sendable {
     }
 }
 
+/// 編集した画像の保存のしかた。
+///
+/// 取り違えると元の画像が戻せなくなるため、呼び出し側で bool を回さず名前で扱う
+public enum ImageSaveMode: String, Equatable, CaseIterable, Sendable {
+    /// 元のアイテムを編集後の画像で置き換える（履歴の件数は増えない）
+    case overwrite
+    /// 元のアイテムを残したまま、編集後の画像を履歴へ追加する
+    case addNew
+}
+
 /// 取り消し（⌘Z）1 回分の操作。
 ///
 /// 座標はトリミング後の座標系へ移さず、常に元画像のピクセルで持つ。

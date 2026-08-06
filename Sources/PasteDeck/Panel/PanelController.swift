@@ -254,7 +254,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             return nil
         case 36, 76:  // return / keypad enter
             guard modifiers.contains(.command) else { return nil }
-            viewModel.commitImageEditing()
+            viewModel.commitImageEditing(mode: Self.saveMode(for: modifiers))
             return nil
         case 6 where modifiers == .command:  // ⌘Z
             viewModel.undoImageEdit()
@@ -297,12 +297,18 @@ final class PanelController: NSObject, NSWindowDelegate {
             viewModel.commitImageText()
             // ⌘↩ は編集全体の保存でもある。文字を確定してからそのまま保存する
             if modifiers.contains(.command) {
-                viewModel.commitImageEditing()
+                viewModel.commitImageEditing(mode: Self.saveMode(for: modifiers))
             }
             return nil
         default:
             return event
         }
+    }
+
+    /// ⌘↩ は上書き、⇧⌘↩ は新規。⇧ の有無だけで元画像が残るかどうかが変わるため、
+    /// 判定は 1 か所に置いて呼び出し側で書き分けない
+    private static func saveMode(for modifiers: NSEvent.ModifierFlags) -> ImageSaveMode {
+        modifiers.contains(.shift) ? .addNew : .overwrite
     }
 
     /// 1〜6 で道具を切り替える。並びは編集画面のツールバーと同じ。
