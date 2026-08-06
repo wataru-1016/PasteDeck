@@ -40,12 +40,17 @@ final class PasteService {
     private func writeToPasteboard(_ item: ClipboardItem, alternate: Bool) {
         let pasteboard = NSPasteboard.general
 
-        if item.kind == .fileList,
-           let urls = item.fileURLs?.compactMap({ URL(string: $0) }),
-           !urls.isEmpty {
-            pasteboard.clearContents()
-            pasteboard.writeObjects(urls as [NSURL])
-            return
+        if item.kind == .fileList, let urls = item.fileURLs?.compactMap({ URL(string: $0) }) {
+            // 元ファイルは PasteDeck の外で移動・削除されうる。消えたものを混ぜると
+            // 貼り先が一式まるごと受け取れないことがあるため、まだ在るものだけ渡す。
+            // 全部消えていたらこの下へ落ちて、せめてファイル名を文字として渡す
+            // （カード側にも「元ファイルが見つかりません」を出している）
+            let existing = FileLinkRules.existing(urls)
+            if !existing.isEmpty {
+                pasteboard.clearContents()
+                pasteboard.writeObjects(existing as [NSURL])
+                return
+            }
         }
 
         let flavors = store.flavors(for: item.id) ?? [:]

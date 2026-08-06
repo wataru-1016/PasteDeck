@@ -18,6 +18,9 @@ public enum CaptureRules {
 
     public static let maxItemBytes = 50 * 1024 * 1024
     public static let previewMaxLength = 400
+    /// 検索で見る本文の上限。preview より長く取るが、巨大なコピー 1 件で
+    /// インデックス（items.json）が膨らまないよう頭で切る
+    public static let searchTextMaxLength = 2000
     public static let maxItems = 500
 
     public static func shouldSkip(types: [String]) -> Bool {
@@ -43,6 +46,18 @@ public enum CaptureRules {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count > previewMaxLength else { return trimmed }
         return String(trimmed.prefix(previewMaxLength)) + "…"
+    }
+
+    /// 検索用に持っておく本文。preview に収まりきらなかったときだけ返す。
+    ///
+    /// カードに出す preview は先頭 400 文字で切れるため、それだけを検索していると
+    /// 長いメール本文の後半にある語では見つけられない。かといって全文を
+    /// インデックスへ入れると、短いコピーばかりの履歴でも同じ文字列を二重に持つことになる。
+    /// preview で足りるものは nil にして、足りないものだけ長い方を持つ
+    public static func searchText(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > previewMaxLength else { return nil }
+        return String(trimmed.prefix(searchTextMaxLength))
     }
 
     public static func contentHash(flavors: [String: Data], fileURLs: [String]) -> String {

@@ -152,37 +152,8 @@ struct ItemCardView: View {
             ImageThumbnailView(item: item, persistence: viewModel.store.persistence)
 
         case .fileList:
-            fileListBody
+            FileListBodyView(item: item)
         }
-    }
-
-    private var fileListBody: some View {
-        let urls = (item.fileURLs ?? []).compactMap { URL(string: $0) }
-        return VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(urls.prefix(2).enumerated()), id: \.offset) { _, url in
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(ItemKind.fileList.tint)
-                    Text(url.lastPathComponent)
-                        .font(.system(size: 12))
-                        .lineLimit(1)
-                }
-            }
-            if urls.count > 2 {
-                Text("ほか \(urls.count - 2) 件")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            if let firstURL = urls.first {
-                FileThumbnailView(
-                    url: firstURL,
-                    cacheKey: item.id.uuidString + firstURL.absoluteString
-                )
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(12)
     }
 
     // MARK: - フッター
@@ -248,6 +219,70 @@ private struct TextBodyView: View {
         } else {
             Text(item.preview)
                 .font(.system(size: RichTextStyle.baseFontSize))
+        }
+    }
+}
+
+/// ファイルアイテムの本文表示。
+///
+/// 履歴が持っているのはファイルの場所（URL）だけで、実体は PasteDeck の外にある。
+/// 移動・削除されると貼っても何も出てこないため、実体がまだ在るかを確かめて
+/// 貼る前に知らせる
+private struct FileListBodyView: View {
+    let item: ClipboardItem
+
+    @State private var linkStatus: FileLinkStatus = .available
+
+    private var urls: [URL] {
+        (item.fileURLs ?? []).compactMap { URL(string: $0) }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(urls.prefix(2).enumerated()), id: \.offset) { _, url in
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(ItemKind.fileList.tint)
+                    Text(url.lastPathComponent)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                }
+            }
+            if urls.count > 2 {
+                Text("ほか \(urls.count - 2) 件")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if let warning = FileLinkRules.warning(for: linkStatus) {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9))
+                    Text(warning)
+                        .lineLimit(2)
+                }
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            }
+            if let firstURL = urls.first {
+                FileThumbnailView(
+                    url: firstURL,
+                    cacheKey: item.id.uuidString + firstURL.absoluteString
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(12)
+        .onAppear(perform: checkLinks)
+    }
+
+    /// 外付けやネットワークのボリュームだと 1 件の確認でも待たされることがあるため、
+    /// パネルが固まらないようメインスレッドの外で確かめる
+    private func checkLinks() {
+        let targets = urls
+        DispatchQueue.global(qos: .utility).async {
+            let status = FileLinkRules.status(of: targets)
+            DispatchQueue.main.async { linkStatus = status }
         }
     }
 }

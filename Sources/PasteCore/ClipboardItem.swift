@@ -12,8 +12,11 @@ public enum ItemKind: String, Codable, Equatable {
 public struct ClipboardItem: Codable, Identifiable, Equatable {
     public let id: UUID
     public let kind: ItemKind
-    /// カード表示・検索用のプレビュー文字列（先頭 400 文字程度）
+    /// カード表示用のプレビュー文字列（先頭 400 文字程度）
     public let preview: String
+    /// preview に収まりきらなかった本文を、検索用に長めに持ったもの（先頭 2000 文字まで）。
+    /// preview で足りる場合は nil。表示には使わない
+    public let searchText: String?
     public let charCount: Int?
     /// fileList の場合のみ: file:// URL 文字列の配列
     public let fileURLs: [String]?
@@ -29,6 +32,7 @@ public struct ClipboardItem: Codable, Identifiable, Equatable {
         id: UUID,
         kind: ItemKind,
         preview: String,
+        searchText: String? = nil,
         charCount: Int?,
         fileURLs: [String]?,
         sourceAppName: String?,
@@ -41,6 +45,7 @@ public struct ClipboardItem: Codable, Identifiable, Equatable {
         self.id = id
         self.kind = kind
         self.preview = preview
+        self.searchText = searchText
         self.charCount = charCount
         self.fileURLs = fileURLs
         self.sourceAppName = sourceAppName

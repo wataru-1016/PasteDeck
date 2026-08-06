@@ -69,6 +69,7 @@ public final class HistoryStore: ObservableObject {
             id: UUID(),
             kind: kind,
             preview: Self.preview(for: kind, text: plainText, content: content),
+            searchText: Self.searchText(for: kind, text: plainText),
             charCount: plainText?.count,
             fileURLs: content.fileURLs.isEmpty ? nil : content.fileURLs,
             sourceAppName: content.sourceAppName,
@@ -173,6 +174,7 @@ public final class HistoryStore: ObservableObject {
             id: original.id,
             kind: kind,
             preview: CaptureRules.makePreview(text),
+            searchText: CaptureRules.searchText(text),
             charCount: text.count,
             fileURLs: nil,
             sourceAppName: original.sourceAppName,
@@ -219,6 +221,8 @@ public final class HistoryStore: ObservableObject {
             id: original.id,
             kind: .image,
             preview: Self.imagePreview(sizeLabel: sizeLabel),
+            // 画像に検索できる本文は無い
+            searchText: nil,
             charCount: nil,
             fileURLs: nil,
             sourceAppName: original.sourceAppName,
@@ -268,6 +272,17 @@ public final class HistoryStore: ObservableObject {
     /// 画像カードの見出し。取り込み時と ⌘E の編集後で同じ文言にする
     private static func imagePreview(sizeLabel: String?) -> String {
         sizeLabel.map { "画像 \($0)" } ?? "画像"
+    }
+
+    /// 検索用に持っておく本文。画像とファイルは preview（サイズ表記・ファイル名）で
+    /// 全部言い尽くしているため、余分に持つものが無い
+    private static func searchText(for kind: ItemKind, text: String?) -> String? {
+        switch kind {
+        case .text, .link:
+            return CaptureRules.searchText(text ?? "")
+        case .image, .fileList:
+            return nil
+        }
     }
 
     private static func preview(for kind: ItemKind, text: String?, content: CapturedContent) -> String {
