@@ -66,7 +66,13 @@ struct PanelView: View {
 
             searchField
 
-            pinnedFilterChip
+            HStack(spacing: 7) {
+                pinnedFilterChip
+                // 押す前にキーが分かるよう、ボタンのすぐ横にも出す。右端の一覧
+                // （KeyHintsView）は固定幅の検索欄と横幅を取り合って隠れることがあり、
+                // ツールチップはポインタを合わせてからでないと読めない
+                KeycapView(key: "⇧⌘P")
+            }
 
             Spacer(minLength: 12)
 
@@ -119,8 +125,8 @@ struct PanelView: View {
                 .foregroundStyle(viewModel.pinnedOnly ? Color.white : Color.secondary)
         }
         .buttonStyle(.plain)
-        // キー表記はここに出す。上部バーのショートカット一覧（KeyHintsView）は
-        // 固定幅の検索欄と横幅を取り合っているため、常時可視なこのボタン側に添える
+        // 横のキーキャップだけでは「押すと何が起きるか」までは分からないため、
+        // 動作の説明はツールチップに残す
         .help("ピン留めした項目だけを表示（⇧⌘P）")
     }
 
