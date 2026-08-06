@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// 画像編集（⌘E）で使う道具。
-/// 宣言した順がツールバーの並びであり、数字キー（1〜6）の割り当てでもある
+/// 宣言した順がツールバーの並びであり、数字キー（1〜8）の割り当てでもある
 public enum ImageTool: String, Equatable, CaseIterable, Sendable {
     /// 塗りつぶした矩形。見せたくない部分を隠すのに使う
     case redaction
@@ -12,6 +12,10 @@ public enum ImageTool: String, Equatable, CaseIterable, Sendable {
     case pen
     /// 矢印
     case arrow
+    /// 枠だけの四角。中身は塗らない（塗って隠すのは `redaction`）
+    case rectangle
+    /// 枠だけの楕円。ドラッグした範囲に収まる大きさになる
+    case ellipse
     /// 文字の書き込み
     case text
     /// 切り抜き範囲の指定
@@ -26,7 +30,7 @@ public enum ImageTool: String, Equatable, CaseIterable, Sendable {
     /// 粗さの足りないモザイクを選べてしまうと、隠したつもりで隠せていない画像ができる
     public var usesStyle: Bool {
         switch self {
-        case .pen, .arrow, .text: return true
+        case .pen, .arrow, .rectangle, .ellipse, .text: return true
         case .redaction, .mosaic, .crop: return false
         }
     }
@@ -133,7 +137,7 @@ public struct ImageStroke: Equatable, Sendable {
         self.fontSize = fontSize ?? ImageEditRules.fontSize(forLineWidth: lineWidth)
     }
 
-    /// 始点と終点。矩形・矢印の形はこの 2 点だけで決まる
+    /// 始点と終点。矢印と、四角・丸・黒塗りなど範囲で決まる形はこの 2 点だけで決まる
     public var endpoints: (from: CGPoint, to: CGPoint)? {
         guard points.count >= 2, let from = points.first, let to = points.last else { return nil }
         return (from, to)

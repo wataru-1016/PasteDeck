@@ -127,7 +127,9 @@ public enum ImageEditRules {
         case .pen:
             // 点を打っただけでも印にはなるため、1 点でも受け付ける
             return !stroke.points.isEmpty
-        case .redaction, .mosaic:
+        case .redaction, .mosaic, .rectangle, .ellipse:
+            // 縦横のどちらかが潰れていれば、囲んだつもりのない誤クリック扱いにする。
+            // 潰れた四角や丸はただの線と見分けがつかず、置いた本人にも意図が伝わらない
             guard let rect = stroke.rect else { return false }
             return rect.width >= minStrokeSpan && rect.height >= minStrokeSpan
         case .arrow:

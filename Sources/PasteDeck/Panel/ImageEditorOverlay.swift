@@ -9,6 +9,8 @@ extension ImageTool {
         case .mosaic: return "モザイク"
         case .pen: return "ペン"
         case .arrow: return "矢印"
+        case .rectangle: return "四角"
+        case .ellipse: return "丸"
         case .text: return "テキスト"
         case .crop: return "トリミング"
         }
@@ -20,6 +22,9 @@ extension ImageTool {
         case .mosaic: return "square.grid.3x3.fill"
         case .pen: return "scribble"
         case .arrow: return "arrow.up.right"
+        // 黒塗り（rectangle.fill）と塗りの有無で描き分ける。同じ四角でも用途が違う
+        case .rectangle: return "rectangle"
+        case .ellipse: return "circle"
         case .text: return "textformat"
         case .crop: return "crop"
         }
@@ -32,6 +37,8 @@ extension ImageTool {
         case .mosaic: return "囲んだ範囲を粗いマス目に置き換えます"
         case .pen: return "ドラッグでなぞって描きます"
         case .arrow: return "始点から終点へドラッグします"
+        case .rectangle: return "囲みたい範囲をドラッグします（枠だけを描きます）"
+        case .ellipse: return "ドラッグした範囲に収まる丸を描きます"
         case .text: return "画像を押すと入力欄が出ます"
         case .crop: return "残したい範囲をドラッグで選びます"
         }
@@ -76,7 +83,7 @@ extension StrokeWeight {
 /// （別ウィンドウにするとパネルが key を失って閉じてしまう）。
 ///
 /// キー操作は `PanelController.handleImageEditingKey(_:modifiers:)` が担当する
-/// （⌘↩ で保存、⌘Z で取り消し、esc で中止、1〜6 で道具の切り替え）
+/// （⌘↩ で保存、⌘Z で取り消し、esc で中止、1〜8 で道具の切り替え）
 struct ImageEditorOverlay: View {
     @ObservedObject var viewModel: PanelViewModel
 
@@ -299,7 +306,7 @@ struct ImageEditorOverlay: View {
         if viewModel.isEditingImageTextSize { return "↩ 大きさを確定" }
         return viewModel.isTypingImageText
             ? "↩ 文字を確定　esc 入力を取り消す"
-            : "1〜6 道具　⌘Z 取り消し　⌘↩ 上書き保存　⇧⌘↩ 新規保存　esc 中止"
+            : "1〜8 道具　⌘Z 取り消し　⌘↩ 上書き保存　⇧⌘↩ 新規保存　esc 中止"
     }
 }
 
@@ -612,6 +619,24 @@ private struct ImageEditCanvas: View {
                 layer.clip(to: Path(toCanvasRect(rect)))
                 layer.draw(Image(nsImage: source.mosaicDisplay), in: imageRect)
             }
+
+        case .rectangle:
+            guard let rect = stroke.rect else { return }
+            // 角の丸めは保存側（CGContext の setLineJoin(.round)）に合わせる。
+            // 既定の miter のままだと、太い枠で角の尖り方だけがプレビューと食い違う
+            context.stroke(
+                Path(toCanvasRect(rect)),
+                with: .color(color),
+                style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round)
+            )
+
+        case .ellipse:
+            guard let rect = stroke.rect else { return }
+            context.stroke(
+                Path(ellipseIn: toCanvasRect(rect)),
+                with: .color(color),
+                style: StrokeStyle(lineWidth: lineWidth)
+            )
 
         case .arrow:
             guard let endpoints = stroke.endpoints,

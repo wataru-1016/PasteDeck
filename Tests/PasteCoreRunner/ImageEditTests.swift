@@ -275,6 +275,23 @@ func runImageEditTests(_ t: TestHarness) {
             !ImageEditRules.isDrawable(stroke(.arrow, [.zero, CGPoint(x: 1, y: 1)])),
             "極端に短い矢印は残さない"
         )
+        // 潰れた四角・丸はただの線と見分けがつかない。囲んだつもりのない操作として捨てる
+        t.expect(
+            !ImageEditRules.isDrawable(stroke(.rectangle, [.zero, CGPoint(x: 1, y: 40)])),
+            "幅の無い四角は残さない"
+        )
+        t.expect(
+            ImageEditRules.isDrawable(stroke(.rectangle, [.zero, CGPoint(x: 40, y: 30)])),
+            "十分な大きさの四角は残す"
+        )
+        t.expect(
+            !ImageEditRules.isDrawable(stroke(.ellipse, [.zero, CGPoint(x: 40, y: 1)])),
+            "高さの無い丸は残さない"
+        )
+        t.expect(
+            ImageEditRules.isDrawable(stroke(.ellipse, [.zero, CGPoint(x: 40, y: 30)])),
+            "十分な大きさの丸は残す"
+        )
         t.expect(
             !ImageEditRules.isDrawable(stroke(.crop, [.zero, CGPoint(x: 40, y: 40)])),
             "切り抜きは描き込みではない"
@@ -306,6 +323,8 @@ func runImageEditTests(_ t: TestHarness) {
 
         t.expect(ImageTool.pen.usesStyle, "ペンは色と太さを選べる")
         t.expect(ImageTool.arrow.usesStyle, "矢印は色と太さを選べる")
+        t.expect(ImageTool.rectangle.usesStyle, "四角は色と太さを選べる")
+        t.expect(ImageTool.ellipse.usesStyle, "丸は色と太さを選べる")
         t.expect(ImageTool.text.usesStyle, "文字は色と大きさを選べる")
         t.expect(!ImageTool.redaction.usesStyle, "黒塗りは選ばせない")
         t.expect(!ImageTool.mosaic.usesStyle, "モザイクは選ばせない")
@@ -485,8 +504,23 @@ func runImageEditTests(_ t: TestHarness) {
 
     t.run("道具の数は数字キーの割り当てと釣り合っている") { t in
         // 増やしたときは PanelController.tool(forKeyCode:) のキーコードも足すこと
-        t.expect(ImageTool.allCases.count == 6, "道具は 6 つ（1〜6 のキーに対応）")
+        t.expect(ImageTool.allCases.count == 8, "道具は 8 つ（1〜8 のキーに対応）")
         t.expect(ImageTool.allCases.first == .redaction, "既定の道具が先頭にある")
+    }
+
+    t.run("四角と丸はドラッグの向きに依らず同じ範囲になる") { t in
+        // 右下へ引いても左上へ引いても囲まれる範囲は同じでなければならない。
+        // 向きで結果が変わると、引き直すたびに枠の位置が動いて狙った場所を囲めない
+        let expected = CGRect(x: 20, y: 30, width: 100, height: 60)
+        let forward = stroke(.rectangle, [CGPoint(x: 20, y: 30), CGPoint(x: 120, y: 90)])
+        let backward = stroke(.ellipse, [CGPoint(x: 120, y: 90), CGPoint(x: 20, y: 30)])
+
+        t.expect(forward.rect == expected, "右下へ引いた四角")
+        t.expect(backward.rect == expected, "左上へ引いた丸")
+
+        // 途中の通過点は形に関わらない。拾ってしまうとドラッグの経路で枠が歪む
+        t.expect(!ImageTool.rectangle.usesAllPoints, "四角は始点と終点だけで決まる")
+        t.expect(!ImageTool.ellipse.usesAllPoints, "丸は始点と終点だけで決まる")
     }
 
     t.run("矢印の頭は先端から手前に向かって作られる") { t in

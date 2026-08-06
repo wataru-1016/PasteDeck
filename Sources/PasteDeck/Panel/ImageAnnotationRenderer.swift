@@ -79,6 +79,15 @@ enum ImageAnnotationRenderer {
             guard let rect = stroke.rect, let mosaic else { return }
             drawMosaic(mosaic, in: rect, context: context, imageSize: imageSize)
 
+        // 四角と丸は枠だけを描く。中を塗ると下が見えなくなり、隠す道具と区別がつかない
+        case .rectangle:
+            guard let rect = stroke.rect else { return }
+            context.stroke(rect)
+
+        case .ellipse:
+            guard let rect = stroke.rect else { return }
+            context.strokeEllipse(in: rect)
+
         case .arrow:
             guard let endpoints = stroke.endpoints,
                   let geometry = ImageEditRules.arrowGeometry(

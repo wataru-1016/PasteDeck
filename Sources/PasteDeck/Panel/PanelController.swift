@@ -311,10 +311,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         modifiers.contains(.shift) ? .addNew : .overwrite
     }
 
-    /// 1〜6 で道具を切り替える。並びは編集画面のツールバーと同じ。
+    /// 1〜8 で道具を切り替える。並びは編集画面のツールバーと同じ。
     /// 5 と 6 はキーコードの並びが入れ替わっている点に注意
     private static func tool(forKeyCode keyCode: UInt16) -> ImageTool? {
-        let numberKeyCodes: [UInt16] = [18, 19, 20, 21, 23, 22]  // 1 / 2 / 3 / 4 / 5 / 6
+        // 1 / 2 / 3 / 4 / 5 / 6 / 7 / 8
+        let numberKeyCodes: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28]
         guard let index = numberKeyCodes.firstIndex(of: keyCode),
               index < ImageTool.allCases.count
         else { return nil }
