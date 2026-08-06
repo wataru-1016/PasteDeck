@@ -150,7 +150,7 @@ enum ImageAnnotationRenderer {
         let attributed = NSAttributedString(
             string: text,
             attributes: ImageTextStyle.coreTextAttributes(
-                size: ImageEditRules.fontSize(forLineWidth: stroke.lineWidth),
+                size: stroke.fontSize,
                 color: stroke.color
             )
         )

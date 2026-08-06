@@ -31,6 +31,12 @@ final class PanelViewModel: ObservableObject {
     /// 選んでいる色と太さ。編集画面を閉じても持ち越す（毎回選び直すのは煩わしい）
     @Published var imageColor: StrokeColor = .marker
     @Published var imageWeight: StrokeWeight = .regular
+    /// 書き込む文字の大きさ（画像ピクセル）。色や太さと違い、画像を開くたびに
+    /// その画像に合った既定値へ戻す。同じ 24px でも 4K のスクリーンショットでは
+    /// 小さすぎ、小さな画像でははみ出すため、持ち越すと毎回直す羽目になる
+    @Published private(set) var imageTextSize = ImageEditRules.minFontSize
+    /// 大きさの数値欄に入力しているか。打った数字が道具の切り替えに吸われないようにする
+    @Published var isEditingImageTextSize = false
     /// 確定済みの操作。末尾から取り消す（⌘Z）
     @Published private(set) var imageEdits: [ImageEdit] = []
     /// ドラッグ中の操作。離すまで `imageEdits` には入れない
@@ -208,6 +214,7 @@ final class PanelViewModel: ObservableObject {
                     return
                 }
                 self.editingImage = source
+                self.imageTextSize = ImageEditRules.defaultFontSize(forImageSize: source.size)
             }
         }
     }
@@ -275,7 +282,10 @@ final class PanelViewModel: ObservableObject {
             points: [anchor],
             lineWidth: lineWidth(for: .text, imageSize: source.size),
             color: imageColor,
-            text: ImageEditRules.sanitizedText(imageText)
+            text: ImageEditRules.sanitizedText(imageText),
+            // 打ち終わった時点の大きさで書き込む。入力中に大きさを変えられるようにするため、
+            // 入力欄を出した時点の値は覚えない
+            fontSize: imageTextSize
         )
         cancelImageText()
         guard ImageEditRules.isDrawable(stroke) else { return }
@@ -285,6 +295,14 @@ final class PanelViewModel: ObservableObject {
     func cancelImageText() {
         imageTextAnchor = nil
         imageText = ""
+    }
+
+    /// 文字の大きさを画像ピクセルで指定する。
+    /// 範囲外の値は入力欄から届きうるため、受け取る側で必ず丸める
+    func setImageTextSize(_ size: CGFloat) {
+        // 読み込みが終わるまでは上限が決まらない。既定値のまま触らせない
+        guard let source = editingImage else { return }
+        imageTextSize = ImageEditRules.clampedFontSize(size, forImageSize: source.size)
     }
 
     func undoImageEdit() {
@@ -361,6 +379,7 @@ final class PanelViewModel: ObservableObject {
         imageDraftPoints = []
         imageTextAnchor = nil
         imageText = ""
+        isEditingImageTextSize = false
         imageEditError = nil
         // 読み込み中だった場合、あとから届く結果を捨てさせる
         imageLoadToken = UUID()

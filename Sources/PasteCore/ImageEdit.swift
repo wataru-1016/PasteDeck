@@ -20,7 +20,7 @@ public enum ImageTool: String, Equatable, CaseIterable, Sendable {
     /// ドラッグの通過点をすべて形に使うか。false なら始点と終点だけで形が決まる
     public var usesAllPoints: Bool { self == .pen }
 
-    /// 色と太さを選べる道具か。
+    /// 色と寸法（線なら太さ、文字なら大きさ）を選べる道具か。
     ///
     /// 隠す道具（黒塗り・モザイク）とトリミングでは選ばせない。半透明の色や
     /// 粗さの足りないモザイクを選べてしまうと、隠したつもりで隠せていない画像ができる
@@ -81,8 +81,9 @@ public struct StrokeColorChoice: Equatable, Sendable, Identifiable {
     }
 }
 
-/// 線の太さ（文字では大きさ）の選択。
-/// 実際の寸法は画像の大きさにも比例させる（`ImageEditRules.lineWidth(forImageSize:weight:)`）
+/// 線の太さの選択。実際の寸法は画像の大きさにも比例させる
+/// （`ImageEditRules.lineWidth(forImageSize:weight:)`）。
+/// 文字の大きさはこれを使わず、ピクセルで直に指定する（`ImageStroke.fontSize`）
 public enum StrokeWeight: String, Equatable, CaseIterable, Sendable {
     case thin
     case regular
@@ -103,20 +104,24 @@ public enum StrokeWeight: String, Equatable, CaseIterable, Sendable {
 public struct ImageStroke: Equatable, Sendable {
     public let tool: ImageTool
     public let points: [CGPoint]
-    /// 線の太さ（画像ピクセル）。文字の大きさもここから決まる
-    /// （`ImageEditRules.fontSize(forLineWidth:)`）
+    /// 線の太さ（画像ピクセル）
     public let lineWidth: CGFloat
     /// 実際に描く色。`tool` が色を選べない道具なら、渡した色に関わらず黒になる
     public let color: StrokeColor
     /// `tool == .text` のときに書き込む文字。ほかの道具では空
     public let text: String
+    /// 書き込む文字の大きさ（画像ピクセル）。`tool == .text` のときだけ意味を持つ。
+    /// プレビューと保存で同じ値を使うため、比率ではなく確定した寸法として持つ
+    public let fontSize: CGFloat
 
+    /// - Parameter fontSize: 文字の大きさ（画像ピクセル）。省略すると線の太さから決まる
     public init(
         tool: ImageTool,
         points: [CGPoint],
         lineWidth: CGFloat,
         color: StrokeColor = .marker,
-        text: String = ""
+        text: String = "",
+        fontSize: CGFloat? = nil
     ) {
         self.tool = tool
         self.points = points
@@ -125,6 +130,7 @@ public struct ImageStroke: Equatable, Sendable {
         // 取り違えは、隠し損ねに直結するので型の側で防ぐ
         self.color = tool.color(selected: color)
         self.text = text
+        self.fontSize = fontSize ?? ImageEditRules.fontSize(forLineWidth: lineWidth)
     }
 
     /// 始点と終点。矩形・矢印の形はこの 2 点だけで決まる

@@ -390,6 +390,70 @@ func runImageEditTests(_ t: TestHarness) {
         )
     }
 
+    t.run("文字の大きさはピクセルで指定できる") { t in
+        let point = [CGPoint(x: 10, y: 10)]
+        let specified = ImageStroke(
+            tool: .text, points: point, lineWidth: 6, text: "ここ", fontSize: 37
+        )
+        t.expect(isClose(specified.fontSize, 37), "指定した値をそのまま使う")
+
+        let omitted = ImageStroke(tool: .text, points: point, lineWidth: 6, text: "ここ")
+        t.expect(
+            isClose(omitted.fontSize, ImageEditRules.fontSize(forLineWidth: 6)),
+            "指定しなければ従来どおり線幅から決まる"
+        )
+    }
+
+    t.run("指定した文字の大きさは画像に収まる範囲へ丸める") { t in
+        let size = CGSize(width: 1600, height: 1000)
+        let upper = ImageEditRules.maxFontSize(forImageSize: size)
+
+        t.expect(
+            isClose(ImageEditRules.clampedFontSize(24.4, forImageSize: size), 24),
+            "ピクセル単位なので整数に丸める"
+        )
+        t.expect(
+            isClose(
+                ImageEditRules.clampedFontSize(1, forImageSize: size),
+                ImageEditRules.minFontSize
+            ),
+            "小さすぎる指定は下限まで戻す"
+        )
+        t.expect(
+            isClose(ImageEditRules.clampedFontSize(99_999, forImageSize: size), upper.rounded()),
+            "画像からはみ出す大きさは上限で止める"
+        )
+        t.expect(upper < min(size.width, size.height), "上限でも画像の短辺には収まる")
+        t.expect(
+            ImageEditRules.clampedFontSize(.nan, forImageSize: size) >= ImageEditRules.minFontSize,
+            "数値にならない入力でも壊れた値を返さない"
+        )
+
+        // 極端に小さい画像でも、下限を割り込む範囲を作らない
+        let tiny = CGSize(width: 8, height: 6)
+        t.expect(
+            ImageEditRules.maxFontSize(forImageSize: tiny) >= ImageEditRules.minFontSize,
+            "上限が下限を下回らない"
+        )
+    }
+
+    t.run("既定の文字の大きさは画像の大きさから決まる") { t in
+        let smallImage = CGSize(width: 400, height: 300)
+        let largeImage = CGSize(width: 3840, height: 2160)
+        let small = ImageEditRules.defaultFontSize(forImageSize: smallImage)
+        let large = ImageEditRules.defaultFontSize(forImageSize: largeImage)
+
+        t.expect(large > small, "大きい画像ほど既定も大きい")
+        t.expect(
+            isClose(small, small.rounded()) && isClose(large, large.rounded()),
+            "既定値も整数ピクセルで始まる"
+        )
+        t.expect(
+            isClose(large, ImageEditRules.clampedFontSize(large, forImageSize: largeImage)),
+            "既定値は指定できる範囲に入っている"
+        )
+    }
+
     t.run("モザイクのマス目は画像の大きさに合わせて決まる") { t in
         let small = ImageEditRules.mosaicBlockSize(forImageSize: CGSize(width: 120, height: 90))
         let medium = ImageEditRules.mosaicBlockSize(forImageSize: CGSize(width: 2880, height: 1800))

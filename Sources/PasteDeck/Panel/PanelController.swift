@@ -12,8 +12,13 @@ private final class KeyablePanel: NSPanel {
 /// .nonactivatingPanel を使い、前面アプリをアクティブなまま保つのが貼り付けの要。
 final class PanelController: NSObject, NSWindowDelegate {
     private static let panelHeight: CGFloat = 340
-    /// 画像編集中の高さ。340pt のままではキャンバスが小さすぎて塗る場所を狙えない
-    private static let editingPanelHeight: CGFloat = 720
+    /// 画像編集中の高さ。340pt のままではキャンバスが小さすぎて塗る場所を狙えない。
+    /// 固定値ではなく画面の高さに対する割合で決める。固定だと、広いディスプレイほど
+    /// 上下に余白ばかりが残り、画面の割にキャンバスが小さいままになる
+    private static let editingHeightRatio: CGFloat = 0.88
+    /// 画面が高ければ割合で伸びるが、低い画面でもここまでは確保しようとする
+    /// （画面の高さ自体が足りなければ、下の `min` で画面に収まるほうを採る）
+    private static let minEditingPanelHeight: CGFloat = 720
     private static let showDuration: TimeInterval = 0.22
     private static let hideDuration: TimeInterval = 0.16
     private static let resizeDuration: TimeInterval = 0.18
@@ -234,6 +239,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         _ event: NSEvent,
         modifiers: NSEvent.ModifierFlags
     ) -> NSEvent? {
+        // 数値欄が先。文字の入力欄を出したまま大きさを変えることがあり、
+        // そのとき打った数字は道具の切り替えではなく数値欄へ届かなければならない
+        if viewModel.isEditingImageTextSize {
+            return handleImageTextSizeKey(event)
+        }
         if viewModel.isTypingImageText {
             return handleImageTextKey(event, modifiers: modifiers)
         }
@@ -256,6 +266,20 @@ final class PanelController: NSObject, NSWindowDelegate {
             }
             // ⌘Q などアプリ全体のキー等価はメインメニューへ通す
             return modifiers.contains(.command) ? event : nil
+        }
+    }
+
+    /// 文字の大きさを打ち込んでいる間のキー操作。
+    ///
+    /// ↩ と esc はどちらも「数値を確定して欄から抜ける」にする。esc をそのまま通すと
+    /// 大きさを打ち直しただけのつもりで編集画面ごと閉じてしまい、描き込みが消える
+    private func handleImageTextSizeKey(_ event: NSEvent) -> NSEvent? {
+        switch event.keyCode {
+        case 53, 36, 76:  // esc / return / keypad enter
+            viewModel.isEditingImageTextSize = false
+            return nil
+        default:
+            return event
         }
     }
 
@@ -306,6 +330,12 @@ final class PanelController: NSObject, NSWindowDelegate {
         )
     }
 
+    /// 画像編集中のパネルの高さ。画面をはみ出さない範囲で、できるだけ大きく取る
+    private static func editingHeight(inside visibleFrame: NSRect) -> CGFloat {
+        let preferred = max(visibleFrame.height * editingHeightRatio, minEditingPanelHeight)
+        return min(preferred, visibleFrame.height)
+    }
+
     /// 画像編集の間だけパネルを高くする。
     ///
     /// 高さが変わる間は中身を窓へ張り付ける（`.height`）。上端固定（`.minYMargin`）の
@@ -315,7 +345,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         guard let screen = panel.screen ?? screenWithMouse() else { return }
 
         let height = expanded
-            ? min(Self.editingPanelHeight, screen.visibleFrame.height)
+            ? Self.editingHeight(inside: screen.visibleFrame)
             : Self.panelHeight
         guard height != contentHeight else { return }
         contentHeight = height

@@ -34,6 +34,12 @@ public enum ImageEditRules {
     /// 書き込める文字数の上限。1 行の注釈に必要な長さは超えている
     public static let maxTextLength = 120
 
+    /// 指定できる文字の大きさ（画像ピクセル）の下限と、上限を画像の短辺から決めるときの比率。
+    /// 上限を画像に対する比で持つのは、画像からはみ出すほどの文字を指定できても
+    /// 書き込んだ結果が読めず、指定できること自体が誤操作の入口になるため
+    public static let minFontSize: CGFloat = 6
+    private static let maxFontSizeRatio: CGFloat = 0.5
+
     /// モザイク 1 マスの大きさを画像の短辺から決めるときの比率と上下限。
     /// 粗さを選ばせないのは、細かいモザイクだと元の文字が読み取れてしまうため
     private static let mosaicBlockRatio: CGFloat = 0.016
@@ -79,6 +85,24 @@ public enum ImageEditRules {
     /// 書き込む文字の大きさ（画像ピクセル）。線幅と同じ倍率で大小が変わる
     public static func fontSize(forLineWidth lineWidth: CGFloat) -> CGFloat {
         lineWidth * fontSizeRatio
+    }
+
+    /// 画像を開いたときに最初に入れておく文字の大きさ（画像ピクセル）。
+    /// 線幅と同じ決め方にしてあるので、4K でも小さな画像でも読める大きさから始まる
+    public static func defaultFontSize(forImageSize size: CGSize) -> CGFloat {
+        clampedFontSize(fontSize(forLineWidth: lineWidth(forImageSize: size)), forImageSize: size)
+    }
+
+    /// その画像で指定できる文字の大きさの上限（画像ピクセル）
+    public static func maxFontSize(forImageSize size: CGSize) -> CGFloat {
+        max(min(size.width, size.height) * maxFontSizeRatio, minFontSize)
+    }
+
+    /// 指定された大きさを、その画像で扱える範囲の整数ピクセルに収める。
+    /// ピクセル単位で指定させる以上、半端な小数を持ち回っても意味がないため丸める
+    public static func clampedFontSize(_ size: CGFloat, forImageSize imageSize: CGSize) -> CGFloat {
+        guard size.isFinite else { return minFontSize }
+        return min(max(size.rounded(), minFontSize), maxFontSize(forImageSize: imageSize).rounded())
     }
 
     /// モザイク 1 マスの大きさ（画像ピクセル）

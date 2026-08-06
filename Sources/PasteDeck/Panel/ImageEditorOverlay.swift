@@ -37,9 +37,6 @@ extension ImageTool {
         }
     }
 
-    /// 太さの選択欄の見出し。文字では太さではなく大きさが変わる
-    var weightLabel: String { self == .text ? "大きさ" : "太さ" }
-
     /// 道具を切り替える数字キー。`PanelController.tool(forKeyCode:)` と並びを合わせる
     var shortcutKey: String {
         guard let index = Self.allCases.firstIndex(of: self) else { return "" }
@@ -48,14 +45,12 @@ extension ImageTool {
 }
 
 extension StrokeWeight {
-    func label(for tool: ImageTool) -> String {
-        switch (tool, self) {
-        case (.text, .thin): return "小"
-        case (.text, .regular): return "中"
-        case (.text, .bold): return "大"
-        case (_, .thin): return "細"
-        case (_, .regular): return "中"
-        case (_, .bold): return "太"
+    /// 文字の大きさはピクセルで指定するため、この選択が出るのは線を引く道具だけ
+    var label: String {
+        switch self {
+        case .thin: return "細"
+        case .regular: return "中"
+        case .bold: return "太"
         }
     }
 }
@@ -94,7 +89,9 @@ struct ImageEditorOverlay: View {
             footer
         }
         .padding(16)
-        .frame(maxWidth: 1120)
+        // 広い画面では横にも大きく使う。上限を設けているのは、際限なく広げると
+        // 縦長の画像で左右がただの余白になり、道具の並びだけが遠くなるため
+        .frame(maxWidth: 1440)
         .background(shape.fill(Color(nsColor: .windowBackgroundColor)))
         .overlay(shape.stroke(Color.primary.opacity(0.14), lineWidth: 1))
         .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
@@ -169,7 +166,7 @@ struct ImageEditorOverlay: View {
         }
     }
 
-    /// 色と太さの選択。高さは常に確保して、道具を変えてもキャンバスが上下に跳ねないようにする
+    /// 色と寸法の選択。高さは常に確保して、道具を変えてもキャンバスが上下に跳ねないようにする
     private var styleBar: some View {
         let tool = viewModel.imageTool
         return HStack(spacing: 10) {
@@ -184,15 +181,27 @@ struct ImageEditorOverlay: View {
 
                 Divider().frame(height: 16)
 
-                Text(tool.weightLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(StrokeWeight.allCases, id: \.self) { weight in
-                    WeightChip(
-                        title: weight.label(for: tool),
-                        isSelected: viewModel.imageWeight == weight,
-                        action: { viewModel.imageWeight = weight }
+                if tool == .text {
+                    // 文字は太さの三段階ではなくピクセルで指定する。
+                    // 貼り付け先で並ぶ他の文字と大きさを揃えたいことが多く、
+                    // 「中」では画像ごとに何ピクセルになるのかが分からない
+                    TextSizeField(
+                        size: viewModel.imageTextSize,
+                        range: textSizeRange,
+                        onChange: viewModel.setImageTextSize,
+                        isEditing: $viewModel.isEditingImageTextSize
                     )
+                } else {
+                    Text("太さ")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(StrokeWeight.allCases, id: \.self) { weight in
+                        WeightChip(
+                            title: weight.label,
+                            isSelected: viewModel.imageWeight == weight,
+                            action: { viewModel.imageWeight = weight }
+                        )
+                    }
                 }
             }
 
@@ -203,6 +212,13 @@ struct ImageEditorOverlay: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(height: 24)
+    }
+
+    /// 指定できる文字の大きさ。読み込みが終わるまでは上限が決まらないので動かせない
+    private var textSizeRange: ClosedRange<Int> {
+        let lower = Int(ImageEditRules.minFontSize)
+        guard let source = viewModel.editingImage else { return lower...lower }
+        return lower...Int(ImageEditRules.maxFontSize(forImageSize: source.size))
     }
 
     // MARK: - キャンバス
@@ -253,9 +269,10 @@ struct ImageEditorOverlay: View {
         }
     }
 
-    /// 文字を打っている間は ↩ と esc の意味が変わるため、案内も差し替える
+    /// 何かを打っている間は ↩ と esc の意味が変わるため、案内も差し替える
     private var keyHint: String {
-        viewModel.isTypingImageText
+        if viewModel.isEditingImageTextSize { return "↩ 大きさを確定" }
+        return viewModel.isTypingImageText
             ? "↩ 文字を確定　esc 入力を取り消す"
             : "1〜6 道具　⌘Z 取り消し　⌘↩ 保存　esc 中止"
     }
@@ -309,6 +326,64 @@ private struct ColorSwatch: View {
         }
         .buttonStyle(.plain)
         .help(choice.name)
+    }
+}
+
+/// 文字の大きさをピクセルで指定する欄。
+///
+/// 数字を打っている間はキー操作の意味が変わる（1〜6 が道具の切り替えにならない、
+/// esc で編集画面ごと閉じない）ため、入力中かどうかを外へ知らせる
+private struct TextSizeField: View {
+    /// ▲▼ 一回分の刻み。1px 刻みでは大きな画像で見た目が変わらず、押した手応えがない
+    private static let step = 2
+
+    let size: CGFloat
+    let range: ClosedRange<Int>
+    let onChange: (CGFloat) -> Void
+    @Binding var isEditing: Bool
+
+    @FocusState private var focused: Bool
+
+    /// 保持は CGFloat だが、指定はピクセル単位なので整数で受け渡す
+    private var pixels: Binding<Int> {
+        Binding(
+            get: { Int(size.rounded()) },
+            set: { onChange(CGFloat($0)) }
+        )
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        return HStack(spacing: 4) {
+            Text("大きさ")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextField("", value: pixels, format: .number)
+                .textFieldStyle(.plain)
+                .font(.caption.monospacedDigit())
+                .multilineTextAlignment(.trailing)
+                .frame(width: 34)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(shape.fill(Color.primary.opacity(0.06)))
+                .overlay(shape.stroke(focused ? Color.accentColor : .clear, lineWidth: 1.5))
+                .focused($focused)
+                .onSubmit { focused = false }
+
+            Text("px")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Stepper("", value: pixels, in: range, step: Self.step)
+                .labelsHidden()
+                .controlSize(.small)
+        }
+        .onChange(of: focused) { _, isFocused in isEditing = isFocused }
+        // キー操作側（esc / ↩）からフォーカスを外させる。外れた時点で打った値が確定する
+        .onChange(of: isEditing) { _, editing in
+            if !editing { focused = false }
+        }
     }
 }
 
@@ -541,7 +616,7 @@ private struct ImageEditCanvas: View {
             guard let anchor = stroke.points.first else { return }
             let body = ImageEditRules.sanitizedText(stroke.text)
             guard !body.isEmpty else { return }
-            let fontSize = ImageEditRules.fontSize(forLineWidth: stroke.lineWidth) / fit.scale
+            let fontSize = stroke.fontSize / fit.scale
             let resolved = context.resolve(
                 Text(body)
                     .font(ImageTextStyle.swiftUIFont(size: fontSize))
