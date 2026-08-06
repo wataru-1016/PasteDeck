@@ -39,7 +39,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var contentHeight = PanelController.panelHeight
 
     /// 貼り付け実行時の処理。AppDelegate が設定する
-    var onPaste: ((ClipboardItem, _ plainTextOnly: Bool) -> Void)?
+    var onPaste: ((ClipboardItem, _ alternate: Bool) -> Void)?
 
     init(viewModel: PanelViewModel) {
         self.viewModel = viewModel
@@ -69,11 +69,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.contentView = container
         panel.delegate = self
 
-        viewModel.onActivate = { [weak self] item, plainTextOnly in
+        viewModel.onActivate = { [weak self] item, alternate in
             // 閉じアニメーション中のダブルクリックで、パネルがまだ key のうちに
             // ⌘V が合成されるのを防ぐ（表示中のときだけ受け付ける）
             guard let self, self.isShown else { return }
-            self.hide { self.onPaste?(item, plainTextOnly) }
+            self.hide { self.onPaste?(item, alternate) }
         }
         viewModel.onImageEditingChange = { [weak self] isEditing in
             self?.setExpanded(isEditing)
@@ -183,7 +183,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             viewModel.moveSelection(1)
             return nil
         case 36, 76:  // return / keypad enter
-            viewModel.activateSelected(plainTextOnly: modifiers.contains(.shift))
+            viewModel.activateSelected(alternate: modifiers.contains(.shift))
             return nil
         // 修飾キーは `contains(.command)` ではなく完全一致で判定する。
         // `contains` は ⇧⌘ の組み合わせにも一致するため、⌘◯ と ⇧⌘◯ を

@@ -31,8 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let viewModel = PanelViewModel(store: store)
         panelController = PanelController(viewModel: viewModel)
-        panelController.onPaste = { [weak self] item, plainTextOnly in
-            self?.pasteService.paste(item, plainTextOnly: plainTextOnly)
+        panelController.onPaste = { [weak self] item, alternate in
+            self?.pasteService.paste(item, alternate: alternate)
         }
 
         hotkeyManager = HotkeyManager(shortcut: HotkeyPreferences.load()) { [weak self] in

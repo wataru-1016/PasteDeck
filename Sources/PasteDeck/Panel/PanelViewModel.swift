@@ -59,7 +59,7 @@ final class PanelViewModel: ObservableObject {
 
     let store: HistoryStore
     /// アイテム決定時（Enter / ダブルクリック）の処理。PanelController が設定する
-    var onActivate: ((ClipboardItem, _ plainTextOnly: Bool) -> Void)?
+    var onActivate: ((ClipboardItem, _ alternate: Bool) -> Void)?
     /// 画像編集の開始・終了。キャンバスを確保するためパネルを広げる
     var onImageEditingChange: ((Bool) -> Void)?
 
@@ -107,13 +107,20 @@ final class PanelViewModel: ObservableObject {
         selectedID = visible[next].id
     }
 
-    func activate(_ item: ClipboardItem, plainTextOnly: Bool = false) {
-        onActivate?(item, plainTextOnly)
+    /// - Parameter alternate: ⇧ を押しながら決定したか（⇧↩ での貼り付け）
+    func activate(_ item: ClipboardItem, alternate: Bool = false) {
+        onActivate?(item, alternate)
     }
 
-    func activateSelected(plainTextOnly: Bool) {
+    func activateSelected(alternate: Bool) {
         guard let item = selectedItem else { return }
-        activate(item, plainTextOnly: plainTextOnly)
+        activate(item, alternate: alternate)
+    }
+
+    /// ⇧↩ を押すと何が起きるか。選んでいるアイテムの種別で変わるためヒント表示に使う。
+    /// 何も選んでいなければ、履歴の大半を占めるテキストの挙動を出しておく
+    var alternatePaste: AlternatePaste {
+        PasteRules.alternatePaste(for: selectedItem?.kind ?? .text)
     }
 
     func togglePin(_ item: ClipboardItem) {

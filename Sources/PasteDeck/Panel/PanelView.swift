@@ -81,7 +81,7 @@ struct PanelView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
 
-            KeyHintsView()
+            KeyHintsView(alternatePaste: viewModel.alternatePaste)
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)

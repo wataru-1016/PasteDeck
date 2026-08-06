@@ -22,8 +22,10 @@ final class PasteService {
         self.monitor = monitor
     }
 
-    func paste(_ item: ClipboardItem, plainTextOnly: Bool) {
-        writeToPasteboard(item, plainTextOnly: plainTextOnly)
+    /// - Parameter alternate: ⇧ を押しながら決定したか。
+    ///   押していれば `PasteRules.alternatePaste(for:)` が決めた貼り方になる
+    func paste(_ item: ClipboardItem, alternate: Bool) {
+        writeToPasteboard(item, alternate: alternate)
         monitor.ignoreNextChange()
         store.moveToFront(item.id)
 
@@ -35,7 +37,7 @@ final class PasteService {
 
     /// 書き込む内容を確定してから clearContents する。
     /// 「消去したのに何も書き込まない」状態を作らないため、全分岐が必ず書き込みで終わる
-    private func writeToPasteboard(_ item: ClipboardItem, plainTextOnly: Bool) {
+    private func writeToPasteboard(_ item: ClipboardItem, alternate: Bool) {
         let pasteboard = NSPasteboard.general
 
         if item.kind == .fileList,
@@ -48,14 +50,25 @@ final class PasteService {
 
         let flavors = store.flavors(for: item.id) ?? [:]
 
-        // ⇧Enter はプレーンテキスト flavor がある場合のみプレーン化し、
-        // ない種別（画像など）は通常貼り付けへフォールバックする
-        if plainTextOnly,
-           let data = flavors[CaptureRules.plainTextType],
-           let text = String(data: data, encoding: .utf8) {
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
-            return
+        // ⇧Enter の貼り方。用意できなかったときは黙って通常の貼り付けへ落とす。
+        // 「押したのに何も起きない」より、いつもどおり貼れたほうが立て直しやすい
+        if alternate {
+            switch PasteRules.alternatePaste(for: item.kind) {
+            case .plainText:
+                if let data = flavors[CaptureRules.plainTextType],
+                   let text = String(data: data, encoding: .utf8) {
+                    pasteboard.clearContents()
+                    pasteboard.setString(text, forType: .string)
+                    return
+                }
+            case .file:
+                if let png = flavors[CaptureRules.pngType],
+                   let url = ImageFileExporter.write(png: png, item: item) {
+                    pasteboard.clearContents()
+                    pasteboard.writeObjects([url as NSURL])
+                    return
+                }
+            }
         }
 
         if !flavors.isEmpty {
