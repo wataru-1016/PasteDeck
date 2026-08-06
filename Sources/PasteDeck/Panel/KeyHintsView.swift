@@ -28,6 +28,7 @@ struct KeyHintsView: View {
         [
             KeyHint(key: "↩", label: "貼り付け"),
             KeyHint(key: "⇧↩", label: Self.label(for: alternatePaste)),
+            KeyHint(key: "⌘1〜9", label: "番号で貼り付け"),
             KeyHint(key: "⌘E", label: "編集"),
             KeyHint(key: "⌘P", label: "ピン"),
             KeyHint(key: "⌘⌫", label: "削除"),

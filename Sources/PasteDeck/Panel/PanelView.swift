@@ -140,10 +140,13 @@ struct PanelView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 14) {
-                        ForEach(viewModel.visible) { item in
+                        // ⌘1〜⌘9 は表示中の並びで数えるため、位置ごと渡す。
+                        // 検索で絞り込むと、絞り込んだ結果の先頭が ⌘1 になる
+                        ForEach(Array(viewModel.visible.enumerated()), id: \.element.id) { index, item in
                             ItemCardView(
                                 item: item,
                                 isSelected: item.id == viewModel.selectedID,
+                                quickPasteKey: NumberKeyRules.quickPasteLabel(forIndex: index),
                                 viewModel: viewModel
                             )
                             .id(item.id)

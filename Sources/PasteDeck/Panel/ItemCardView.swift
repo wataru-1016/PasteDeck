@@ -25,7 +25,13 @@ extension ItemKind {
 struct ItemCardView: View {
     let item: ClipboardItem
     let isSelected: Bool
+    /// このカードを直接貼り付けるキーの表記（先頭 9 枚だけ。10 枚目以降は nil）
+    let quickPasteKey: String?
     @ObservedObject var viewModel: PanelViewModel
+
+    /// ここまで動かしたらドラッグと見なす。小さすぎると、
+    /// 選ぼうとしたクリックの手ぶれでカードが飛び出してしまう
+    private static let dragThreshold: CGFloat = 8
 
     @State private var isHovering = false
 
@@ -66,12 +72,28 @@ struct ItemCardView: View {
         .onHover { isHovering = $0 }
         .simultaneousGesture(TapGesture().onEnded { viewModel.select(item) })
         .onTapGesture(count: 2) { viewModel.activate(item) }
+        // 掴んで Finder などへ直接置けるようにする。AppKit のドラッグセッションを
+        // 自分で始めるため、ここでは「動かし始めた」ことだけを拾う。
+        // 二重に始まらないよう、実際の開始判定は PanelViewModel 側で行う
+        .simultaneousGesture(
+            DragGesture(minimumDistance: Self.dragThreshold)
+                .onChanged { _ in viewModel.beginDrag(item) }
+        )
     }
 
     // MARK: - ヘッダー
 
     private var header: some View {
         HStack(spacing: 8) {
+            // 押せるキーをカード自身に出しておく。ヒント欄に「⌘1〜9」とだけ書いても、
+            // 何枚目が何番なのかは数えないと分からない
+            if let quickPasteKey {
+                KeycapView(key: quickPasteKey, fontSize: 10, minWidth: 24)
+                    // 長いアプリ名との横幅の取り合いで潰れないようにする。
+                    // 「⌘…」と切られては、どのキーなのか読めない
+                    .fixedSize()
+                    .help("\(quickPasteKey) でこの項目を貼り付け")
+            }
             Image(nsImage: AppIconProvider.icon(forBundleID: item.sourceAppBundleID))
                 .resizable()
                 .frame(width: 17, height: 17)

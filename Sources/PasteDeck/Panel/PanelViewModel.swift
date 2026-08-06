@@ -62,6 +62,16 @@ final class PanelViewModel: ObservableObject {
     var onActivate: ((ClipboardItem, _ alternate: Bool) -> Void)?
     /// 画像編集の開始・終了。キャンバスを確保するためパネルを広げる
     var onImageEditingChange: ((Bool) -> Void)?
+    /// カードのドラッグが終わったときの処理。引数はどこかに置かれたかどうか。
+    /// PanelController が設定する
+    var onDragEnded: ((_ didDrop: Bool) -> Void)?
+
+    /// 進行中のドラッグ。AppKit 側は始めたセッションを保持しないため、終わるまでここで持つ。
+    /// 入っている間は次のドラッグを始めない
+    private var dragSession: CardDragSession?
+
+    /// カードを運んでいる最中か。運んでいる間にパネルを閉じないための判定に使う
+    var isDraggingCard: Bool { dragSession != nil }
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -115,6 +125,34 @@ final class PanelViewModel: ObservableObject {
     func activateSelected(alternate: Bool) {
         guard let item = selectedItem else { return }
         activate(item, alternate: alternate)
+    }
+
+    /// ⌘1〜⌘9。並びの n 番目（0 始まり）を選ばずにそのまま貼り付ける。
+    ///
+    /// 数えるのは表示中の並びで、検索で絞り込んだあとは絞り込んだ結果の先頭からになる。
+    /// カードに出しているキー表記と同じ数え方でなければ、見えている番号と貼られるものがずれる
+    func activate(at index: Int, alternate: Bool) {
+        guard visible.indices.contains(index) else { return }
+        activate(visible[index], alternate: alternate)
+    }
+
+    // MARK: - ドラッグして書き出す
+
+    /// カードを Finder などへドラッグする。渡せるものが無ければ何も起きない。
+    ///
+    /// 貼り付けと違って前面アプリを選ばないため、パネルを開いたまま
+    /// 目的の場所へ直接置ける（複数ファイルの履歴も一式のまま渡せる）
+    func beginDrag(_ item: ClipboardItem) {
+        guard dragSession == nil else { return }
+        dragSession = CardDragSession.begin(item: item, store: store) { [weak self] didDrop in
+            guard let self else { return }
+            self.dragSession = nil
+            // 置いたときだけ、貼り付けたときと同じ扱いにする。使ったものが先頭に
+            // 来ないと、次に開いたときまた探し直すことになる。
+            // どこにも置かずに放したときは履歴の並びを触らない
+            if didDrop { self.store.moveToFront(item.id) }
+            self.onDragEnded?(didDrop)
+        }
     }
 
     /// ⇧↩ を押すと何が起きるか。選んでいるアイテムの種別で変わるためヒント表示に使う。

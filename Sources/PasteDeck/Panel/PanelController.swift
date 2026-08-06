@@ -78,6 +78,14 @@ final class PanelController: NSObject, NSWindowDelegate {
         viewModel.onImageEditingChange = { [weak self] isEditing in
             self?.setExpanded(isEditing)
         }
+        viewModel.onDragEnded = { [weak self] didDrop in
+            guard let self else { return }
+            // 渡し終えたら閉じる。貼り付けと同じで、用が済んだパネルが置いた先に
+            // 覆いかぶさったままにならないようにする。
+            // 置かずに放した場合でも、運んでいる間にフォーカスが他へ移っていれば閉じる
+            // （その間は windowDidResignKey の自動クローズを止めているため）
+            if didDrop || !self.panel.isKeyWindow { self.hide() }
+        }
         installKeyMonitor()
     }
 
@@ -138,6 +146,10 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
+        // カードを運んでいる間は閉じない。窓を下ろすと運んでいるものの出どころが
+        // 無くなり、置く前にドラッグごと取り消されてしまう。
+        // 運び終えたあとの後始末は onDragEnded で行う
+        guard !viewModel.isDraggingCard else { return }
         if isShown {
             hide()
         }
@@ -203,6 +215,14 @@ final class PanelController: NSObject, NSWindowDelegate {
             viewModel.beginEditingSelected()
             return nil
         default:
+            // ⌘1〜⌘9 は並びの n 番目を、選び直さずにそのまま貼る。
+            // 修飾キー無しの数字は検索の文字として通したいので ⌘ を要る形にしてある。
+            // ⇧ を足したときは ⇧↩ と同じ貼り方になる
+            let isQuickPaste = modifiers == .command || modifiers == [.command, .shift]
+            if isQuickPaste, let index = NumberKeyRules.index(forKeyCode: event.keyCode) {
+                viewModel.activate(at: index, alternate: modifiers.contains(.shift))
+                return nil
+            }
             return event
         }
     }
@@ -312,11 +332,9 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     /// 1〜8 で道具を切り替える。並びは編集画面のツールバーと同じ。
-    /// 5 と 6 はキーコードの並びが入れ替わっている点に注意
+    /// 道具は 8 つしかないため、9 は空振りさせる
     private static func tool(forKeyCode keyCode: UInt16) -> ImageTool? {
-        // 1 / 2 / 3 / 4 / 5 / 6 / 7 / 8
-        let numberKeyCodes: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28]
-        guard let index = numberKeyCodes.firstIndex(of: keyCode),
+        guard let index = NumberKeyRules.index(forKeyCode: keyCode),
               index < ImageTool.allCases.count
         else { return nil }
         return ImageTool.allCases[index]

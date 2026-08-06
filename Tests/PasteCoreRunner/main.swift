@@ -12,6 +12,7 @@ runRichTextStyleTests(harness)
 runTextEditTests(harness)
 runImageEditTests(harness)
 runHotkeyShortcutTests(harness)
+runNumberKeyRulesTests(harness)
 runPasteRulesTests(harness)
 
 harness.finish()
