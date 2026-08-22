@@ -214,6 +214,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         case 14 where modifiers == .command:  // ⌘E
             viewModel.beginEditingSelected()
             return nil
+        case 15 where modifiers == .command:  // ⌘R
+            viewModel.recognizeSelected()
+            return nil
         default:
             // ⌘1〜⌘9 は並びの n 番目を、選び直さずにそのまま貼る。
             // 修飾キー無しの数字は検索の文字として通したいので ⌘ を要る形にしてある。

@@ -2,10 +2,10 @@ import AppKit
 import PasteCore
 import SwiftUI
 
-/// ショートカット設定ウィンドウ。開いている間は押されたキーをそのまま記録する。
+/// ショートカット設定ウィンドウ。行を選んでいる間だけ、押されたキーをそのまま記録する。
 ///
-/// 記録中は現在のホットキーを一時的に外す。Carbon のグローバルホットキーはどのアプリより
-/// 先にキーを取るため、外さないと現在の組み合わせを押した瞬間に履歴パネルが開いてしまう
+/// 記録中はすべてのホットキーを一時的に外す。Carbon のグローバルホットキーはどのアプリより
+/// 先にキーを取るため、外さないと現在の組み合わせを押した瞬間にその動作が走ってしまう
 final class ShortcutSettingsController: NSObject, NSWindowDelegate {
     /// 記録の判定に使う修飾キー。`.deviceIndependentFlagsMask` には capsLock や
     /// numericPad も含まれるため、押されていても影響しないこの 4 つだけを見る
@@ -16,12 +16,9 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var keyMonitor: Any?
 
-    /// 現在登録されている組み合わせ。メニューの表示に使う
-    var shortcut: HotkeyShortcut { hotkeyManager.shortcut }
-
     init(hotkeyManager: HotkeyManager) {
         self.hotkeyManager = hotkeyManager
-        self.model = ShortcutSettingsModel(shortcut: hotkeyManager.shortcut)
+        self.model = ShortcutSettingsModel(shortcuts: hotkeyManager.shortcuts)
         super.init()
     }
 
@@ -29,9 +26,22 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
         removeKeyMonitor()
     }
 
+    /// 現在登録されている組み合わせ。メニューの表示に使う
+    func shortcut(for action: HotkeyAction) -> HotkeyShortcut {
+        hotkeyManager.shortcut(for: action)
+    }
+
+    /// 実際に登録できているか。メニューにキー表記を出すかの判定に使う
+    func isRegistered(_ action: HotkeyAction) -> Bool {
+        hotkeyManager.isRegistered(action)
+    }
+
     func show() {
-        model.shortcut = hotkeyManager.shortcut
+        model.shortcuts = hotkeyManager.shortcuts
         model.errorMessage = nil
+        // 開いた瞬間に記録を始めると、どの行が変わるのか分からないまま
+        // 最初に押したキーが登録されてしまう
+        model.recordingAction = nil
 
         let window = self.window ?? makeWindow()
         self.window = window
@@ -40,7 +50,6 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window.center()
         window.makeKeyAndOrderFront(nil)
-        startRecording()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -52,11 +61,12 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
     private func makeWindow() -> NSWindow {
         let view = ShortcutSettingsView(
             model: model,
-            onReset: { [weak self] in self?.apply(.default) },
+            onStartRecording: { [weak self] action in self?.startRecording(action) },
+            onReset: { [weak self] action in self?.apply(action.defaultShortcut, for: action) },
             onClose: { [weak self] in self?.window?.close() }
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 250),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 330),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -70,8 +80,9 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
 
     // MARK: - キーの記録
 
-    private func startRecording() {
-        model.isRecording = true
+    private func startRecording(_ action: HotkeyAction) {
+        model.recordingAction = action
+        model.errorMessage = nil
         guard keyMonitor == nil else { return }
         hotkeyManager.suspend()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -82,7 +93,7 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
 
     private func stopRecording() {
         removeKeyMonitor()
-        model.isRecording = false
+        model.recordingAction = nil
         hotkeyManager.resume()
     }
 
@@ -94,12 +105,15 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
 
     /// 記録したら nil、ウィンドウの通常操作へ流すならイベントを返す
     private func handleKey(_ event: NSEvent) -> NSEvent? {
+        // 行を選んでいない間は、ウィンドウの通常のキー操作を邪魔しない
+        guard let action = model.recordingAction else { return event }
+
         let modifiers = event.modifierFlags.intersection(Self.significantModifiers)
 
-        // 修飾キーなしの esc と ↩ は記録せず、ウィンドウを閉じる／完了ボタンへ渡す。
+        // 修飾キーなしの esc は記録を中止し、↩ は完了ボタンへ渡す。
         // どちらも修飾キーなしでは `isValid` にならないため、記録の妨げにはならない
         if modifiers.isEmpty, event.keyCode == 53 {
-            window?.close()
+            stopRecording()
             return nil
         }
         if modifiers.isEmpty, event.keyCode == 36 || event.keyCode == 76 {
@@ -114,17 +128,18 @@ final class ShortcutSettingsController: NSObject, NSWindowDelegate {
             model.errorMessage = "⌘ ⌃ ⌥ のいずれかを含む組み合わせにしてください。"
             return nil
         }
-        apply(candidate)
+        apply(candidate, for: action)
         return nil
     }
 
     /// 登録して保存する。失敗したら理由を出したまま次の入力を待つ
-    private func apply(_ shortcut: HotkeyShortcut) {
+    private func apply(_ shortcut: HotkeyShortcut, for action: HotkeyAction) {
         do {
-            try hotkeyManager.update(to: shortcut)
-            HotkeyPreferences.save(shortcut)
-            model.shortcut = shortcut
+            try hotkeyManager.update(action, to: shortcut)
+            HotkeyPreferences.save(shortcut, for: action)
+            model.shortcuts[action] = shortcut
             model.errorMessage = nil
+            stopRecording()
         } catch let error as HotkeyManager.RegistrationError {
             model.errorMessage = error.message
         } catch {

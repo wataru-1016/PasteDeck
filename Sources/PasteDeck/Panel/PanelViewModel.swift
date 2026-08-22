@@ -65,6 +65,8 @@ final class PanelViewModel: ObservableObject {
     /// カードのドラッグが終わったときの処理。引数はどこかに置かれたかどうか。
     /// PanelController が設定する
     var onDragEnded: ((_ didDrop: Bool) -> Void)?
+    /// 画像カードの ⌘R。AppDelegate が OCRController へ繋ぐ
+    var onRecognizeText: ((ClipboardItem) -> Void)?
 
     /// 進行中のドラッグ。AppKit 側は始めたセッションを保持しないため、終わるまでここで持つ。
     /// 入っている間は次のドラッグを始めない
@@ -192,6 +194,13 @@ final class PanelViewModel: ObservableObject {
     // MARK: - 編集（⌘E）
 
     /// 選択中アイテムの編集を開始する。開く画面は種別で決まる
+    /// 選択中が画像のときだけ読み取る。文字は既に読めているので対象外。
+    /// 読み取り結果は新しいカードとして増えるため、パネルは閉じない
+    func recognizeSelected() {
+        guard let item = selectedItem, item.kind == .image else { return }
+        onRecognizeText?(item)
+    }
+
     func beginEditingSelected() {
         guard let item = selectedItem else { return }
         switch item.kind {

@@ -55,8 +55,7 @@ public final class HistoryStore: ObservableObject {
 
         // 既存アイテムと同一内容なら先頭へ移動（ピン状態・保存済みデータは維持）
         if let index = items.firstIndex(where: { $0.contentHash == hash }) {
-            var moved = items[index]
-            moved.createdAt = now
+            let moved = Self.recopied(items[index], from: content, at: now)
             var updated = items
             updated.remove(at: index)
             updated.insert(moved, at: 0)
@@ -272,6 +271,34 @@ public final class HistoryStore: ObservableObject {
     /// 画像カードの見出し。取り込み時と ⌘E の編集後で同じ文言にする
     private static func imagePreview(sizeLabel: String?) -> String {
         sizeLabel.map { "画像 \($0)" } ?? "画像"
+    }
+
+    /// 同じ内容を再コピーしたときの姿。中身は変わらないので、更新するのは
+    /// 「いつ・どこからコピーしたか」だけにする。
+    ///
+    /// コピー元を古いまま残すと、たとえば Safari からコピー済みの文章を画面読み取りで
+    /// 取り込み直しても「画面読み取り」で検索に出てこない。
+    /// 名前と bundleID は必ず対で入れ替える（片方だけ残すとアイコンと名前がちぐはぐになる）
+    private static func recopied(
+        _ existing: ClipboardItem,
+        from content: CapturedContent,
+        at now: Date
+    ) -> ClipboardItem {
+        let hasNewSource = content.sourceAppName != nil || content.sourceAppBundleID != nil
+        return ClipboardItem(
+            id: existing.id,
+            kind: existing.kind,
+            preview: existing.preview,
+            searchText: existing.searchText,
+            charCount: existing.charCount,
+            fileURLs: existing.fileURLs,
+            sourceAppName: hasNewSource ? content.sourceAppName : existing.sourceAppName,
+            sourceAppBundleID: hasNewSource ? content.sourceAppBundleID : existing.sourceAppBundleID,
+            createdAt: now,
+            isPinned: existing.isPinned,
+            byteSize: existing.byteSize,
+            contentHash: existing.contentHash
+        )
     }
 
     /// 検索用に持っておく本文。画像とファイルは preview（サイズ表記・ファイル名）で

@@ -41,6 +41,29 @@ func runHistoryStoreTests(_ t: TestHarness) {
         t.expect(store.items[0].isPinned, "ピン状態を保持")
     }
 
+    t.run("同一内容を別のコピー元から取り込むとコピー元が差し替わる") { t in
+        let store = HistoryStore(persistence: try makeTempPersistence())
+        store.ingest(textContent("共有された文章", app: "Safari"))
+
+        // OCR は bundleID を持たない。名前だけ差し替えると Safari のアイコンが残る
+        store.ingest(CapturedContent(
+            flavors: [CaptureRules.plainTextType: Data("共有された文章".utf8)],
+            sourceAppName: "画面読み取り"
+        ))
+        t.expect(store.items.count == 1, "重複は増えない")
+        t.expect(store.items[0].sourceAppName == "画面読み取り", "最後のコピー元になる")
+        t.expect(store.items[0].sourceAppBundleID == nil, "名前と bundleID は対で差し替わる")
+    }
+
+    t.run("コピー元不明の再コピーでは既存のコピー元を残す") { t in
+        let store = HistoryStore(persistence: try makeTempPersistence())
+        store.ingest(textContent("メモ", app: "Safari"))
+
+        store.ingest(CapturedContent(flavors: [CaptureRules.plainTextType: Data("メモ".utf8)]))
+        t.expect(store.items[0].sourceAppName == "Safari", "分からない値で上書きしない")
+        t.expect(store.items[0].sourceAppBundleID == "com.example.test", "bundleID も残る")
+    }
+
     t.run("上限超過時はピン留め以外の最古アイテムから削除される") { t in
         let store = HistoryStore(
             persistence: try makeTempPersistence(),

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shortcutSettings: ShortcutSettingsController!
     private var statusBarController: StatusBarController!
     private var panelController: PanelController!
+    private var ocrController: OCRController!
     private var activityToken: NSObjectProtocol?
     private var retentionTimer: Timer?
 
@@ -35,23 +36,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.pasteService.paste(item, alternate: alternate)
         }
 
-        hotkeyManager = HotkeyManager(shortcut: HotkeyPreferences.load()) { [weak self] in
-            self?.panelController.toggle()
+        ocrController = OCRController(
+            store: store,
+            monitor: monitor,
+            panelController: panelController
+        )
+        viewModel.onRecognizeText = { [weak self] item in
+            self?.ocrController.recognize(item)
         }
-        // 登録できなくてもメニューからは開けるため、起動自体は続ける
-        do {
-            try hotkeyManager.start()
-        } catch {
-            Log.error("ショートカットを登録できませんでした: \(error)")
+
+        hotkeyManager = HotkeyManager(shortcuts: HotkeyPreferences.loadAll()) { [weak self] action in
+            switch action {
+            case .panel: self?.panelController.toggle()
+            case .ocr: self?.ocrController.capture()
+            }
         }
+        // 登録できなくてもメニューからは操作できるため、起動自体は続ける
+        // （登録に失敗した action は HotkeyManager が個別にログへ残す）
+        hotkeyManager.start()
         shortcutSettings = ShortcutSettingsController(hotkeyManager: hotkeyManager)
 
         statusBarController = StatusBarController(
             store: store,
             monitor: monitor,
             panelController: panelController,
-            shortcutSettings: shortcutSettings
+            shortcutSettings: shortcutSettings,
+            ocrController: ocrController
         )
+        // self ではなく statusBarController を弱参照で捕まえ、循環参照を作らない
+        ocrController.onStatusChange = { [weak statusBarController] state in
+            statusBarController?.setIconState(state)
+        }
 
         // App Nap によるポーリング停止を防ぐ（システムのスリープは妨げない）
         activityToken = ProcessInfo.processInfo.beginActivity(
