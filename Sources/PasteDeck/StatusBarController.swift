@@ -42,11 +42,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         action: #selector(startCapture),
         keyEquivalent: ""
     )
-    private let recopyItem = NSMenuItem(
-        title: "読み取り結果をもう一度コピー",
-        action: #selector(recopyLast),
-        keyEquivalent: ""
-    )
     private let aiPolishItem = NSMenuItem(
         title: "AI 校正（Apple Intelligence）",
         action: #selector(toggleAIPolish),
@@ -126,8 +121,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
         menu.delegate = self
-        // 既定の true のままだと、menuWillOpen で設定した isEnabled が
-        // 表示直前に上書きされ、「もう一度コピー」が常に有効に見えてしまう
+        // 既定の true のままだと、menuWillOpen で設定した isEnabled が表示直前に
+        // 上書きされるため、状態は自前で更新する
         menu.autoenablesItems = false
 
         showItem.target = self
@@ -136,55 +131,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         captureItem.target = self
         menu.addItem(captureItem)
 
-        recopyItem.target = self
-        menu.addItem(recopyItem)
-
-        menu.addItem(.separator())
-
-        menu.addItem(buildOutputFormatMenuItem())
-
-        aiPolishItem.target = self
-        menu.addItem(aiPolishItem)
-
         menu.addItem(.separator())
 
         pauseItem.target = self
         menu.addItem(pauseItem)
 
-        menu.addItem(buildRetentionMenuItem())
-
-        let clearItem = NSMenuItem(title: "未ピンの履歴を消去…", action: #selector(clearHistory), keyEquivalent: "")
-        clearItem.target = self
-        menu.addItem(clearItem)
-
         menu.addItem(.separator())
 
-        let shortcutItem = NSMenuItem(
-            title: "ショートカットを変更…",
-            action: #selector(openShortcutSettings),
-            keyEquivalent: ""
-        )
-        shortcutItem.target = self
-        menu.addItem(shortcutItem)
-
-        loginItem.target = self
-        menu.addItem(loginItem)
-
-        let accessibilityItem = NSMenuItem(
-            title: "アクセシビリティ設定を開く…",
-            action: #selector(openAccessibilitySettings),
-            keyEquivalent: ""
-        )
-        accessibilityItem.target = self
-        menu.addItem(accessibilityItem)
-
-        let screenRecordingItem = NSMenuItem(
-            title: "画面収録の設定を開く…",
-            action: #selector(openScreenRecordingSettings),
-            keyEquivalent: ""
-        )
-        screenRecordingItem.target = self
-        menu.addItem(screenRecordingItem)
+        menu.addItem(buildReadingSettingsMenuItem())
+        menu.addItem(buildHistorySettingsMenuItem())
+        menu.addItem(buildAppSettingsMenuItem())
 
         menu.addItem(.separator())
 
@@ -193,6 +149,78 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(quitItem)
 
         return menu
+    }
+
+    /// 読み取り結果の作り方に関する設定をまとめる
+    private func buildReadingSettingsMenuItem() -> NSMenuItem {
+        let settingsMenu = NSMenu()
+        settingsMenu.autoenablesItems = false
+        settingsMenu.addItem(buildOutputFormatMenuItem())
+
+        aiPolishItem.target = self
+        settingsMenu.addItem(aiPolishItem)
+
+        let settingsItem = NSMenuItem(title: "文字読み取り・コピー設定", action: nil, keyEquivalent: "")
+        settingsItem.submenu = settingsMenu
+        return settingsItem
+    }
+
+    /// 履歴の保存と消去に関する設定をまとめる
+    private func buildHistorySettingsMenuItem() -> NSMenuItem {
+        let settingsMenu = NSMenu()
+        settingsMenu.autoenablesItems = false
+        settingsMenu.addItem(buildRetentionMenuItem())
+        settingsMenu.addItem(.separator())
+
+        let clearItem = NSMenuItem(
+            title: "未ピンの履歴を消去…",
+            action: #selector(clearHistory),
+            keyEquivalent: ""
+        )
+        clearItem.target = self
+        settingsMenu.addItem(clearItem)
+
+        let settingsItem = NSMenuItem(title: "履歴設定", action: nil, keyEquivalent: "")
+        settingsItem.submenu = settingsMenu
+        return settingsItem
+    }
+
+    /// アプリ全体と macOS の権限に関する設定をまとめる
+    private func buildAppSettingsMenuItem() -> NSMenuItem {
+        let settingsMenu = NSMenu()
+        settingsMenu.autoenablesItems = false
+
+        let shortcutItem = NSMenuItem(
+            title: "ショートカットを変更…",
+            action: #selector(openShortcutSettings),
+            keyEquivalent: ""
+        )
+        shortcutItem.target = self
+        settingsMenu.addItem(shortcutItem)
+
+        loginItem.target = self
+        settingsMenu.addItem(loginItem)
+        settingsMenu.addItem(.separator())
+
+        let accessibilityItem = NSMenuItem(
+            title: "アクセシビリティ設定を開く…",
+            action: #selector(openAccessibilitySettings),
+            keyEquivalent: ""
+        )
+        accessibilityItem.target = self
+        settingsMenu.addItem(accessibilityItem)
+
+        let screenRecordingItem = NSMenuItem(
+            title: "画面収録の設定を開く…",
+            action: #selector(openScreenRecordingSettings),
+            keyEquivalent: ""
+        )
+        screenRecordingItem.target = self
+        settingsMenu.addItem(screenRecordingItem)
+
+        let settingsItem = NSMenuItem(title: "アプリ設定", action: nil, keyEquivalent: "")
+        settingsItem.submenu = settingsMenu
+        return settingsItem
     }
 
     /// 「出力形式」サブメニュー。tag には `OutputFormat.allCases` の位置を入れる
@@ -293,7 +321,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         item.keyEquivalentModifierMask = Self.menuModifierMask(shortcut.modifiers)
     }
 
-    /// 出力形式・AI 校正・「もう一度コピー」の状態を引き直す
+    /// 出力形式・AI 校正の状態を引き直す
     private func updateOCRItems() {
         let format = OCRPreferences.loadOutputFormat()
         for (index, item) in outputFormatMenuItems.enumerated() {
@@ -311,10 +339,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             aiPolishItem.state = OCRPreferences.loadAIPolishEnabled() ? .on : .off
         }
 
-        // 読み取り中はどちらも押させない。押せてしまうと OCRController 側の
-        // 排他に弾かれてビープが鳴るだけで、なぜ効かないのかが分からない
+        // 読み取り中は再実行させない。押せてしまうと OCRController 側の排他に
+        // 弾かれてビープが鳴るだけで、なぜ効かないのかが分からない
         captureItem.isEnabled = !ocrController.isWorking
-        recopyItem.isEnabled = ocrController.lastText != nil && !ocrController.isWorking
     }
 
     private static func menuModifierMask(_ modifiers: HotkeyShortcut.Modifiers) -> NSEvent.ModifierFlags {
@@ -388,10 +415,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc private func startCapture() {
         ocrController.capture()
-    }
-
-    @objc private func recopyLast() {
-        ocrController.recopyLast()
     }
 
     @objc private func selectOutputFormat(_ sender: NSMenuItem) {

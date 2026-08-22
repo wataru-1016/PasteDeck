@@ -19,8 +19,6 @@ final class OCRController {
     /// アイコン状態の通知先。StatusBarController が後から刺す
     var onStatusChange: ((StatusIconState) -> Void)?
 
-    /// 「もう一度コピー」用。メニューの有効/無効の判定にも使う
-    private(set) var lastText: String?
     /// 読み取り中の多重起動を、⇧⌘7 と ⌘R の両方の経路でまとめて防ぐ。
     /// メニュー項目を押させないための判定にも使う
     private(set) var isWorking = false
@@ -71,14 +69,6 @@ final class OCRController {
                 self.recognizeAndDeliver(image)
             }
         }
-    }
-
-    /// 直前の読み取り結果をもう一度クリップボードへ置く
-    func recopyLast() {
-        // 読み取り中は受け付けない。deliver が finish まで進んで isWorking を下ろすため、
-        // ここを通すと進行中の読み取りの排他が解け、後続の読み取りと結果を奪い合う
-        guard !isWorking, let lastText else { NSSound.beep(); return }
-        deliver(lastText)
     }
 
     // MARK: - 読み取りの流れ
@@ -158,7 +148,6 @@ final class OCRController {
             flavors: [CaptureRules.plainTextType: Data(text.utf8)],
             sourceAppName: Self.sourceAppName
         ))
-        lastText = text
         finish(.succeeded)
     }
 
